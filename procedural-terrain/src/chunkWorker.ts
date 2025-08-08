@@ -67,33 +67,31 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
 
   // Use CHUNK_SIZE instead of params.size for consistent chunk dimensions
   const chunkSize = CHUNK_SIZE;
-  const vertexCount = chunkSize * chunkSize;
-  const positions = new Float32Array(vertexCount * 3);
-  const normals = new Float32Array(vertexCount * 3);
-  const colors = new Float32Array(vertexCount * 3);
-  const waterMask = new Uint8Array(vertexCount);
-
-  const useUint32 = vertexCount > 65535;
-  const indices = useUint32
-    ? new Uint32Array((chunkSize - 1) * (chunkSize - 1) * 6)
-    : new Uint16Array((chunkSize - 1) * (chunkSize - 1) * 6);
-
+  
   const rng = createSeededRng(seed);
   const noise2D = createNoise2D(rng);
 
   // Derive world vertex spacing from constants to match sampler and chunk placement
   const worldScale = CHUNK_WORLD_SIZE / (chunkSize - 1);
 
-  // Generate positions with world coordinates
+  // For flat shading, we need separate vertices for each triangle
+  // Each quad becomes 2 triangles, each triangle gets 3 unique vertices
+  const triangleCount = (chunkSize - 1) * (chunkSize - 1) * 2;
+  const vertexCount = triangleCount * 3;
+  
+  const positions = new Float32Array(vertexCount * 3);
+  const normals = new Float32Array(vertexCount * 3);
+  const colors = new Float32Array(vertexCount * 3);
+  const waterMask = new Uint8Array(vertexCount);
+
+  // Generate height grid first
+  const heightGrid: number[][] = [];
   for (let z = 0; z < chunkSize; z++) {
+    heightGrid[z] = [];
     for (let x = 0; x < chunkSize; x++) {
-      const i = z * chunkSize + x;
-      
-      // World position for this vertex
       const worldX = worldOffsetX + x * worldScale;
       const worldZ = worldOffsetZ + z * worldScale;
       
-      // Use world coordinates for noise sampling to ensure continuity
       const nx = worldX * baseFrequency;
       const nz = worldZ * baseFrequency;
       const dx = worldX * detailFrequency;
@@ -101,59 +99,55 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
       
       const baseHeight = baseAmplitude * noise2D(nx, nz);
       const detailHeight = detailAmplitude * noise2D(dx, dz);
-      const height = baseHeight + detailHeight;
-
-      // Store positions relative to chunk origin (chunk mesh is positioned at worldOffset)
-      positions[i * 3 + 0] = x * worldScale;
-      positions[i * 3 + 1] = height;
-      positions[i * 3 + 2] = z * worldScale;
-
-      // Generate terrain color based on height
-      const [r, g, b] = getTerrainColor(height);
-      colors[i * 3 + 0] = r;
-      colors[i * 3 + 1] = g;
-      colors[i * 3 + 2] = b;
-
-      // Mark water areas
-      waterMask[i] = height <= WATER_LEVEL ? 1 : 0;
+      heightGrid[z][x] = baseHeight + detailHeight;
     }
   }
 
-  // Build indices and accumulate normals via face normals
-  let ptr = 0;
+  // Build triangles with flat shading (each triangle has unique vertices)
+  let vertexIndex = 0;
+  
   for (let z = 0; z < chunkSize - 1; z++) {
     for (let x = 0; x < chunkSize - 1; x++) {
-      const a = z * chunkSize + x;
-      const b = z * chunkSize + (x + 1);
-      const d = (z + 1) * chunkSize + x;
-      const c = (z + 1) * chunkSize + (x + 1);
+      // Get the four corner heights
+      const h00 = heightGrid[z][x];         // top-left
+      const h10 = heightGrid[z][x + 1];     // top-right  
+      const h01 = heightGrid[z + 1][x];     // bottom-left
+      const h11 = heightGrid[z + 1][x + 1]; // bottom-right
 
-      // Triangle 1: a, d, b
-      indices[ptr++] = a as any;
-      indices[ptr++] = d as any;
-      indices[ptr++] = b as any;
+      // World positions for the four corners
+      const x00 = x * worldScale;
+      const z00 = z * worldScale;
+      const x10 = (x + 1) * worldScale;
+      const z10 = z * worldScale;
+      const x01 = x * worldScale;
+      const z01 = (z + 1) * worldScale;
+      const x11 = (x + 1) * worldScale;
+      const z11 = (z + 1) * worldScale;
 
-      accumulateFaceNormal(positions, normals, a, d, b, chunkSize);
+      // Triangle 1: (x,z) -> (x,z+1) -> (x+1,z)
+      const tri1Color = getTerrainColor((h00 + h01 + h10) / 3); // Average height for triangle color
+      addFlatTriangle(positions, normals, colors, waterMask, vertexIndex,
+        x00, h00, z00,  // vertex 0
+        x01, h01, z01,  // vertex 1  
+        x10, h10, z10,  // vertex 2
+        tri1Color
+      );
+      vertexIndex += 3;
 
-      // Triangle 2: b, d, c
-      indices[ptr++] = b as any;
-      indices[ptr++] = d as any;
-      indices[ptr++] = c as any;
-
-      accumulateFaceNormal(positions, normals, b, d, c, chunkSize);
+      // Triangle 2: (x+1,z) -> (x,z+1) -> (x+1,z+1)
+      const tri2Color = getTerrainColor((h10 + h01 + h11) / 3); // Average height for triangle color
+      addFlatTriangle(positions, normals, colors, waterMask, vertexIndex,
+        x10, h10, z10,  // vertex 0
+        x01, h01, z01,  // vertex 1
+        x11, h11, z11,  // vertex 2
+        tri2Color
+      );
+      vertexIndex += 3;
     }
   }
 
-  // Normalize accumulated vertex normals
-  for (let i = 0; i < vertexCount; i++) {
-    const nx = normals[i * 3 + 0];
-    const ny = normals[i * 3 + 1];
-    const nz = normals[i * 3 + 2];
-    const len = Math.hypot(nx, ny, nz) || 1;
-    normals[i * 3 + 0] = nx / len;
-    normals[i * 3 + 1] = ny / len;
-    normals[i * 3 + 2] = nz / len;
-  }
+  // No indices needed for flat shading - we use the vertices directly
+  const indices = new Uint16Array(0);
 
   return {
     positions,
@@ -166,6 +160,72 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
     chunkX,
     chunkZ,
   };
+}
+
+function addFlatTriangle(
+  positions: Float32Array,
+  normals: Float32Array, 
+  colors: Float32Array,
+  waterMask: Uint8Array,
+  startIndex: number,
+  x0: number, y0: number, z0: number,
+  x1: number, y1: number, z1: number,
+  x2: number, y2: number, z2: number,
+  color: [number, number, number]
+) {
+  // Calculate face normal
+  const v1x = x1 - x0;
+  const v1y = y1 - y0;
+  const v1z = z1 - z0;
+  
+  const v2x = x2 - x0;
+  const v2y = y2 - y0;
+  const v2z = z2 - z0;
+  
+  // Cross product for normal
+  const nx = v1y * v2z - v1z * v2y;
+  const ny = v1z * v2x - v1x * v2z;
+  const nz = v1x * v2y - v1y * v2x;
+  
+  // Normalize
+  const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+  const normalX = nx / len;
+  const normalY = ny / len; 
+  const normalZ = nz / len;
+
+  // Add three vertices with same normal and color
+  for (let i = 0; i < 3; i++) {
+    const idx = (startIndex + i) * 3;
+    
+    // Set position
+    if (i === 0) {
+      positions[idx + 0] = x0;
+      positions[idx + 1] = y0;
+      positions[idx + 2] = z0;
+    } else if (i === 1) {
+      positions[idx + 0] = x1;
+      positions[idx + 1] = y1;
+      positions[idx + 2] = z1;
+    } else {
+      positions[idx + 0] = x2;
+      positions[idx + 1] = y2;
+      positions[idx + 2] = z2;
+    }
+    
+    // Set normal (same for all vertices in triangle)
+    normals[idx + 0] = normalX;
+    normals[idx + 1] = normalY;
+    normals[idx + 2] = normalZ;
+    
+    // Set color (same for all vertices in triangle)  
+    colors[idx + 0] = color[0];
+    colors[idx + 1] = color[1];
+    colors[idx + 2] = color[2];
+    
+    // Set water mask
+    const height = i === 0 ? y0 : i === 1 ? y1 : y2;
+    waterMask[startIndex + i] = height <= WATER_LEVEL ? 1 : 0;
+  }
 }
 
 function accumulateFaceNormal(

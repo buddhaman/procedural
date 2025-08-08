@@ -147,7 +147,7 @@ export default function App() {
       chunkManager.updateChunks(camera.position, params);
       
       // Update water animation
-      chunkManager.updateWater(clock.getElapsedTime(), camera.position);
+      chunkManager.updateWater(clock.getElapsedTime(), camera.position, params);
 
       renderer.render(scene, camera);
       requestAnimationFrame(animate);
@@ -262,9 +262,9 @@ export default function App() {
           <input
             type="range"
             min="0.0"
-            max="1.0"
-            step="0.1"
-            value={chunkManagerRef.current?.waterMaterial?.uniforms?.waveStrength?.value || 0.2}
+            max="0.3"
+            step="0.02"
+            value={chunkManagerRef.current?.waterMaterial?.uniforms?.waveStrength?.value || 0.1}
             onChange={(e) => {
               if (chunkManagerRef.current?.waterMaterial?.uniforms?.waveStrength) {
                 chunkManagerRef.current.waterMaterial.uniforms.waveStrength.value = parseFloat(e.target.value);
@@ -273,7 +273,7 @@ export default function App() {
             style={{ width: '100px', marginLeft: '10px' }}
           />
           <span style={{ marginLeft: '10px' }}>
-            {(chunkManagerRef.current?.waterMaterial?.uniforms?.waveStrength?.value || 0.2).toFixed(1)}
+            {(chunkManagerRef.current?.waterMaterial?.uniforms?.waveStrength?.value || 0.1).toFixed(2)}
           </span>
         </div>
 
@@ -281,9 +281,9 @@ export default function App() {
           <label>Water Opacity: </label>
           <input
             type="range"
-            min="0.2"
+            min="0.5"
             max="1.0"
-            step="0.1"
+            step="0.05"
             value={chunkManagerRef.current?.waterMaterial?.uniforms?.opacity?.value || 0.8}
             onChange={(e) => {
               if (chunkManagerRef.current?.waterMaterial?.uniforms?.opacity) {
@@ -293,14 +293,14 @@ export default function App() {
             style={{ width: '100px', marginLeft: '10px' }}
           />
           <span style={{ marginLeft: '10px' }}>
-            {(chunkManagerRef.current?.waterMaterial?.uniforms?.opacity?.value || 0.8).toFixed(1)}
+            {(chunkManagerRef.current?.waterMaterial?.uniforms?.opacity?.value || 0.8).toFixed(2)}
           </span>
         </div>
 
         <div style={{ fontSize: '10px', color: '#ccc', lineHeight: '1.4' }}>
           <div>WASD: Move | Space/Shift: Up/Down</div>
           <div>Ctrl: Sprint | Click to lock mouse</div>
-          <div>Animated water with shader effects</div>
+          <div>Flat-shaded water with terrain-based transitions</div>
         </div>
       </div>
     </div>

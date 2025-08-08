@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createNoise2D } from 'simplex-noise';
 import { ChunkParams, WorkerResult, ChunkCoord, CHUNK_SIZE, CHUNK_WORLD_SIZE, RENDER_DISTANCE, WATER_LEVEL } from './types';
 import { createWaterMaterial } from './WaterShader';
 
@@ -35,6 +36,8 @@ export class ChunkManager {
   private terrainMaterial: THREE.Material;
   private waterPlane?: THREE.Mesh;
   public waterMaterial: THREE.ShaderMaterial;
+  private currentTerrainParams: any;
+  private noiseCache = new Map<string, any>();
 
   constructor(scene: THREE.Scene, workerCount = 4) {
     this.scene = scene;
@@ -48,12 +51,13 @@ export class ChunkManager {
     return new THREE.MeshLambertMaterial({
       vertexColors: true,
       side: THREE.DoubleSide,
+      flatShading: true,
     });
   }
 
   private createWaterPlane() {
     const waterSize = 2000; // Large plane that covers visible area
-    const waterGeometry = new THREE.PlaneGeometry(waterSize, waterSize, 128, 128);
+    const waterGeometry = new THREE.PlaneGeometry(waterSize, waterSize, 64, 64);
     waterGeometry.rotateX(-Math.PI / 2); // Rotate to be horizontal
     
     this.waterPlane = new THREE.Mesh(waterGeometry, this.waterMaterial);
@@ -97,7 +101,11 @@ export class ChunkManager {
       terrainGeometry.setAttribute('color', new THREE.BufferAttribute(result.colors, 3));
     }
     
-    terrainGeometry.setIndex(new THREE.BufferAttribute(result.indices, 1));
+    // For flat shading, we don't use indices - vertices are already in triangle order
+    if (result.indices.length > 0) {
+      terrainGeometry.setIndex(new THREE.BufferAttribute(result.indices, 1));
+    }
+    
     terrainGeometry.computeBoundingSphere();
 
     // Create terrain mesh
@@ -113,7 +121,7 @@ export class ChunkManager {
     }
   }
 
-  public updateWater(time: number, cameraPosition: THREE.Vector3) {
+  public updateWater(time: number, cameraPosition: THREE.Vector3, terrainParams?: any) {
     if (this.waterPlane) {
       // Update water plane position to follow camera (infinite water effect)
       this.waterPlane.position.x = cameraPosition.x;
@@ -121,7 +129,14 @@ export class ChunkManager {
       
       // Update shader uniforms
       this.waterMaterial.uniforms.time.value = time;
-      this.waterMaterial.uniforms.cameraPosition.value.copy(cameraPosition);
+      
+      // Update terrain parameters if provided (for accurate height calculation)
+      if (terrainParams) {
+        this.waterMaterial.uniforms.baseFrequency.value = terrainParams.baseFrequency;
+        this.waterMaterial.uniforms.baseAmplitude.value = terrainParams.baseAmplitude;
+        this.waterMaterial.uniforms.detailFrequency.value = terrainParams.detailFrequency;
+        this.waterMaterial.uniforms.detailAmplitude.value = terrainParams.detailAmplitude;
+      }
     }
   }
 
@@ -136,6 +151,9 @@ export class ChunkManager {
   }
 
   public updateChunks(playerPosition: THREE.Vector3, terrainParams: Omit<ChunkParams, 'chunkX' | 'chunkZ' | 'worldOffsetX' | 'worldOffsetZ'>) {
+    // Store current terrain parameters for height sampling
+    this.currentTerrainParams = terrainParams;
+    
     const playerChunkX = Math.floor(playerPosition.x / CHUNK_WORLD_SIZE);
     const playerChunkZ = Math.floor(playerPosition.z / CHUNK_WORLD_SIZE);
 
@@ -178,52 +196,60 @@ export class ChunkManager {
   }
 
   public getHeightAt(worldX: number, worldZ: number): number {
-    const chunkX = Math.floor(worldX / CHUNK_WORLD_SIZE);
-    const chunkZ = Math.floor(worldZ / CHUNK_WORLD_SIZE);
-    const chunkKey = `${chunkX},${chunkZ}`;
-    const chunk = this.chunks.get(chunkKey);
-
-    if (!chunk?.terrainMesh?.geometry) return -Infinity;
-
-    const geometry = chunk.terrainMesh.geometry;
-    const positions = geometry.getAttribute('position') as THREE.BufferAttribute;
-    
-    // Convert world coordinates to local chunk coordinates
-    const localX = worldX - chunk.worldX;
-    const localZ = worldZ - chunk.worldZ;
-    
-    // Convert to grid coordinates
-    const scale = CHUNK_WORLD_SIZE / (CHUNK_SIZE - 1);
-    const gx = localX / scale;
-    const gz = localZ / scale;
-    
-    const x0 = Math.floor(gx);
-    const z0 = Math.floor(gz);
-    
-    if (x0 < 0 || x0 >= CHUNK_SIZE - 1 || z0 < 0 || z0 >= CHUNK_SIZE - 1) {
-      return -Infinity;
+    if (!this.currentTerrainParams) {
+      return 0;
     }
     
-    const x1 = x0 + 1;
-    const z1 = z0 + 1;
-    const tx = gx - x0;
-    const tz = gz - z0;
+    const { baseFrequency, baseAmplitude, detailFrequency, detailAmplitude, seed } = this.currentTerrainParams;
     
-    // Bilinear interpolation
-    const i00 = (z0 * CHUNK_SIZE + x0) * 3 + 1;
-    const i10 = (z0 * CHUNK_SIZE + x1) * 3 + 1;
-    const i01 = (z1 * CHUNK_SIZE + x0) * 3 + 1;
-    const i11 = (z1 * CHUNK_SIZE + x1) * 3 + 1;
+    // Get or create noise function for this seed (same as worker)
+    let noise2D = this.noiseCache.get(seed);
+    if (!noise2D) {
+      // Use exact same RNG setup as worker
+      const rng = this.createSeededRng(seed);
+      noise2D = createNoise2D(rng);
+      this.noiseCache.set(seed, noise2D);
+    }
     
-    const y00 = positions.array[i00];
-    const y10 = positions.array[i10];
-    const y01 = positions.array[i01];
-    const y11 = positions.array[i11];
+    // Use exact same calculation as worker
+    const nx = worldX * baseFrequency;
+    const nz = worldZ * baseFrequency;
+    const dx = worldX * detailFrequency;
+    const dz = worldZ * detailFrequency;
     
-    const y0 = y00 * (1 - tx) + y10 * tx;
-    const y1 = y01 * (1 - tx) + y11 * tx;
+    const baseHeight = baseAmplitude * noise2D(nx, nz);
+    const detailHeight = detailAmplitude * noise2D(dx, dz);
     
-    return y0 * (1 - tz) + y1 * tz;
+    return baseHeight + detailHeight;
+  }
+
+  // Exact same RNG functions as worker
+  private xmur3(str: string) {
+    let h = 1779033703 ^ str.length;
+    for (let i = 0; i < str.length; i++) {
+      h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+      h = (h << 13) | (h >>> 19);
+    }
+    return function () {
+      h = Math.imul(h ^ (h >>> 16), 2246822507);
+      h = Math.imul(h ^ (h >>> 13), 3266489909);
+      return (h ^= h >>> 16) >>> 0;
+    };
+  }
+
+  private mulberry32(a: number) {
+    return function () {
+      let t = (a += 0x6d2b79f5);
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  private createSeededRng(seed: string) {
+    const seedFn = this.xmur3(seed);
+    const rng = this.mulberry32(seedFn());
+    return rng;
   }
 
   public dispose() {
