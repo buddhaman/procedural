@@ -43,7 +43,7 @@ export default function App() {
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMappingExposure = 1.25;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.shadowMap.enabled = true;
@@ -51,7 +51,7 @@ export default function App() {
     container.appendChild(renderer.domElement);
 
     // Lighting
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.9);
     directionalLight.position.set(100, 100, 50);
     directionalLight.castShadow = true;
     directionalLight.shadow.mapSize.width = 2048;
@@ -64,8 +64,11 @@ export default function App() {
     directionalLight.shadow.camera.bottom = -200;
     scene.add(directionalLight);
 
-    const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
+    // Soft ambient + sky/ground fill for colorful look
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
+    const hemiLight = new THREE.HemisphereLight(0xbfe3ff, 0x8f6a40, 0.7);
+    scene.add(hemiLight);
 
     // Controls
     const controls = new PointerLockControls(camera, renderer.domElement);
