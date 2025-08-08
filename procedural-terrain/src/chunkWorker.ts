@@ -55,9 +55,9 @@ const BIOMES: BiomePrototype[] = [
   { name: 'rain',     t: 0.85, m: 0.9, ridgedWeight: 0.4, amplitudeScale: 0.7, detailScale: 0.6, baseColor: [0.15, 0.5, 0.2], baseFreqScale: 0.8, detailFreqScale: 1.0 },
   { name: 'taiga',    t: 0.35, m: 0.55, ridgedWeight: 0.5, amplitudeScale: 1.0, detailScale: 0.4, baseColor: [0.22, 0.5, 0.38], baseFreqScale: 0.6, detailFreqScale: 0.8 },
   
-  // Mountain biomes - very low frequencies for massive, wide mountains
-  { name: 'tundra',   t: 0.2, m: 0.3, ridgedWeight: 0.6, amplitudeScale: 1.5, detailScale: 0.3, baseColor: [0.6, 0.6, 0.6], baseFreqScale: 0.3, detailFreqScale: 0.7 },
-  { name: 'alpine',   t: 0.1, m: 0.4, ridgedWeight: 0.9, amplitudeScale: 2.5, detailScale: 0.25, baseColor: [0.55, 0.55, 0.55], baseFreqScale: 0.15, detailFreqScale: 0.5 },
+  // Mountain biomes - extremely low frequencies for massive, wide mountain ranges
+  { name: 'tundra',   t: 0.2, m: 0.3, ridgedWeight: 0.8, amplitudeScale: 8.0, detailScale: 0.4, baseColor: [0.6, 0.6, 0.6], baseFreqScale: 0.08, detailFreqScale: 0.5 },
+  { name: 'alpine',   t: 0.1, m: 0.4, ridgedWeight: 0.98, amplitudeScale: 15.0, detailScale: 0.3, baseColor: [0.55, 0.55, 0.55], baseFreqScale: 0.04, detailFreqScale: 0.25 },
 ];
 
 function pickBiome(t: number, m: number): BiomePrototype {
@@ -109,6 +109,10 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
   const noiseContinentalness = createNoise2D(createSeededRng(seed + '_continental'));
   const noiseErosion = createNoise2D(createSeededRng(seed + '_erosion'));
   const noisePeaksValleys = createNoise2D(createSeededRng(seed + '_peaks'));
+  
+  // Additional noise for scattered mountain peaks
+  const noiseScatteredPeaks = createNoise2D(createSeededRng(seed + '_scattered'));
+  const noisePeakHeight = createNoise2D(createSeededRng(seed + '_peak_height'));
 
   // Derive world vertex spacing from constants to match sampler and chunk placement
   const worldScale = CHUNK_WORLD_SIZE / (chunkSize - 1);
@@ -133,6 +137,8 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
   const CONTINENTALNESS_FREQ = 0.0001; // Very large scale terrain regions
   const EROSION_FREQ = 0.0008; // Controls mountain vs flat terrain
   const PEAKS_VALLEYS_FREQ = 0.004; // Fine-tunes mountain sharpness
+  const SCATTERED_PEAKS_FREQ = 0.0015; // Frequency for rare scattered mountain peaks
+  const PEAK_HEIGHT_FREQ = 0.003; // Frequency for peak height variation
   const WARP_STRENGTH = 60; // Increased domain warp for more interesting biome borders
   for (let z = 0; z < chunkSize; z++) {
     heightGrid[z] = [];
@@ -167,8 +173,8 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
       const biomeDetailFreq = detailFrequency * biome.detailFreqScale;
 
       // Multi-scale terrain synthesis
-      // 1. Continental base height - controls overall elevation
-      const continentalHeight = continentalness * baseAmplitude * 1.5;
+      // 1. Continental base height - controls overall elevation (much more extreme)
+      const continentalHeight = continentalness * baseAmplitude * 3.0;
       
       // 2. Erosion controls mountainous vs flat terrain
       const erosionFactor = 1.0 - erosion; // Higher erosion = flatter
@@ -186,7 +192,22 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
       const detailVal = noiseDetail(worldX * biomeDetailFreq, worldZ * biomeDetailFreq);
       const detailHeight = detailAmplitude * biome.detailScale * erosionFactor * detailVal;
 
-      const height = baseHeight + detailHeight;
+      // 6. Scattered mountain peaks - rare dramatic spikes
+      const scatteredPeakVal = noiseScatteredPeaks(worldX * SCATTERED_PEAKS_FREQ, worldZ * SCATTERED_PEAKS_FREQ);
+      const peakHeightVar = noisePeakHeight(worldX * PEAK_HEIGHT_FREQ, worldZ * PEAK_HEIGHT_FREQ);
+      
+      // Only create peaks where scattered noise is very high (rare)
+      const peakThreshold = 0.75; // Higher = rarer peaks
+      let scatteredPeakHeight = 0;
+      if (scatteredPeakVal > peakThreshold) {
+        // Strong exponential falloff to create sharp, dramatic peaks
+        const peakStrength = Math.pow((scatteredPeakVal - peakThreshold) / (1.0 - peakThreshold), 3.0);
+        // Extremely tall peaks with massive height variation
+        const maxPeakHeight = baseAmplitude * (12.0 + 8.0 * Math.abs(peakHeightVar));
+        scatteredPeakHeight = maxPeakHeight * peakStrength;
+      }
+
+      const height = baseHeight + detailHeight + scatteredPeakHeight;
       heightGrid[z][x] = height;
 
       // Biome-driven color with gentle height shading
