@@ -2,6 +2,7 @@
 /* eslint-disable no-restricted-globals */
 import { createNoise2D } from 'simplex-noise';
 import { ChunkParams, WorkerResult, CHUNK_SIZE, CHUNK_WORLD_SIZE, WATER_LEVEL } from './types';
+import { GeometryBuilder } from './GeometryBuilder';
 
 function xmur3(str: string) {
   let h = 1779033703 ^ str.length;
@@ -146,20 +147,118 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
     }
   }
 
+  // Add vegetation using noise-based placement
+  const vegetationBuilder = new GeometryBuilder();
+  addVegetation(vegetationBuilder, heightGrid, chunkSize, worldScale, worldOffsetX, worldOffsetZ, noise2D);
+  
+  // Get vegetation geometry
+  const vegGeometry = vegetationBuilder.getGeometry();
+  
+  // Combine terrain and vegetation geometry
+  const combinedPositions = new Float32Array(positions.length + vegGeometry.positions.length);
+  const combinedNormals = new Float32Array(normals.length + vegGeometry.normals.length);
+  const combinedColors = new Float32Array(colors.length + vegGeometry.colors.length);
+  const combinedWaterMask = new Uint8Array(waterMask.length + vegGeometry.positions.length / 3);
+  
+  // Copy terrain data
+  combinedPositions.set(positions);
+  combinedNormals.set(normals);
+  combinedColors.set(colors);
+  combinedWaterMask.set(waterMask);
+  
+  // Copy vegetation data
+  combinedPositions.set(vegGeometry.positions, positions.length);
+  combinedNormals.set(vegGeometry.normals, normals.length);
+  combinedColors.set(vegGeometry.colors, colors.length);
+  // Vegetation is above water, so set water mask to 0
+  for (let i = 0; i < vegGeometry.positions.length / 3; i++) {
+    combinedWaterMask[waterMask.length + i] = 0;
+  }
+
   // No indices needed for flat shading - we use the vertices directly
   const indices = new Uint16Array(0);
 
   return {
-    positions,
-    normals,
+    positions: combinedPositions,
+    normals: combinedNormals,
     indices,
-    colors,
-    waterMask,
+    colors: combinedColors,
+    waterMask: combinedWaterMask,
     size: chunkSize,
     scale: worldScale,
     chunkX,
     chunkZ,
   };
+}
+
+function addVegetation(
+  builder: GeometryBuilder,
+  heightGrid: number[][],
+  chunkSize: number,
+  worldScale: number,
+  worldOffsetX: number,
+  worldOffsetZ: number,
+  noise2D: any
+) {
+  // Sample vegetation at lower resolution to avoid too many trees
+  const vegSampleRate = 8; // Every 8th vertex
+  
+  for (let z = 0; z < chunkSize; z += vegSampleRate) {
+    for (let x = 0; x < chunkSize; x += vegSampleRate) {
+      if (x >= chunkSize || z >= chunkSize) continue;
+      
+      const worldX = worldOffsetX + x * worldScale;
+      const worldZ = worldOffsetZ + z * worldScale;
+      const height = heightGrid[z][x];
+      
+      // Only place vegetation above water level and on reasonable slopes
+      if (height <= WATER_LEVEL + 1) continue;
+      
+      // Use noise to determine vegetation placement
+      const vegNoise = noise2D(worldX * 0.02, worldZ * 0.02);
+      const treeDensityThreshold = 0.3; // Adjust for more/fewer trees
+      
+      if (vegNoise > treeDensityThreshold) {
+        // Determine tree type and size based on height and noise
+        const treeHeight = 3 + (height * 0.1) + (vegNoise * 2);
+        const treeSeed = Math.floor((worldX * 1000 + worldZ * 1000) % 10000);
+        
+        // Add a fractal tree
+        builder.addTree(
+          x * worldScale,
+          height,
+          z * worldScale,
+          Math.min(treeHeight, 8), // Cap tree height
+          (treeSeed % 1000) / 1000 * Math.PI * 2, // Seeded angle
+          4, // Fractal depth
+          treeSeed
+        );
+      }
+      
+      // Add smaller vegetation (bushes) with different noise
+      const bushNoise = noise2D(worldX * 0.05, worldZ * 0.05);
+      if (bushNoise > 0.4 && vegNoise <= treeDensityThreshold) {
+        const bushHeight = 0.5 + bushNoise * 1.5;
+        const bushSeed = Math.floor((worldX * 500 + worldZ * 500) % 10000);
+        
+        // Add small bush (single beam with some randomness)
+        const bushColor: [number, number, number] = [
+          0.2 + bushNoise * 0.3,
+          0.4 + bushNoise * 0.4,
+          0.1
+        ];
+        
+        builder.addBeam(
+          [x * worldScale, height, z * worldScale],
+          [x * worldScale, height + bushHeight, z * worldScale],
+          0.3,
+          0.2,
+          bushColor,
+          6
+        );
+      }
+    }
+  }
 }
 
 function addFlatTriangle(
