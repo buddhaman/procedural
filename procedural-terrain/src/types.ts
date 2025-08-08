@@ -21,6 +21,8 @@ export type WorkerResult = {
   indices: Uint16Array | Uint32Array;
   colors?: Float32Array;
   waterMask?: Uint8Array;
+  heights?: Float32Array;
+  biomes?: string[]; // biome name for each vertex
   size: number;
   scale: number;
   chunkX: number;

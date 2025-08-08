@@ -7,7 +7,7 @@ import './styles.css';
 
 // Movement settings
 const CAMERA_START_Y = 50;
-const MOVE_SPEED_METERS_PER_SEC = 30;
+const MOVE_SPEED_METERS_PER_SEC = 150;
 const SPRINT_MULTIPLIER = 2.0;
 const EYE_HEIGHT = 2;
 
@@ -27,7 +27,12 @@ type Params = typeof DEFAULTS;
 export default function App() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [params, setParams] = useState<Params>({ ...DEFAULTS });
+  const [waveStrength, setWaveStrength] = useState(0.1);
+  const [waterOpacity, setWaterOpacity] = useState(0.8);
+  const [currentBiome, setCurrentBiome] = useState<string>('Unknown');
+  const [cameraPosition, setCameraPosition] = useState({ x: 0, y: 0, z: 0 });
   const chunkManagerRef = useRef<ChunkManager | null>(null);
+  const lastBiomeUpdate = useRef<number>(0);
 
   useEffect(() => {
     const container = mountRef.current!;
@@ -77,10 +82,16 @@ export default function App() {
     // Initialize chunk manager
     const chunkManager = new ChunkManager(scene, 4);
     chunkManagerRef.current = chunkManager;
+    
+    // Set initial water material values
+    if (chunkManager.waterMaterial) {
+      chunkManager.waterMaterial.uniforms.waveStrength.value = waveStrength;
+      chunkManager.waterMaterial.uniforms.opacity.value = waterOpacity;
+    }
 
     // Input handling
     const keyState: Record<string, boolean> = {};
-    const movementKeys = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight']);
+    const movementKeys = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyQ']);
 
     const onKeyDown = (e: KeyboardEvent) => {
       keyState[e.code] = true;
@@ -121,7 +132,7 @@ export default function App() {
 
       // Movement when controls are locked
       if (controls.isLocked) {
-        const isSprinting = !!(keyState['ControlLeft'] || keyState['ControlRight']);
+        const isSprinting = !!keyState['KeyQ'];
         const moveDistance = MOVE_SPEED_METERS_PER_SEC * (isSprinting ? SPRINT_MULTIPLIER : 1) * delta;
 
         // Get movement directions
@@ -152,6 +163,15 @@ export default function App() {
       // Update water animation
       chunkManager.updateWater(clock.getElapsedTime(), camera.position, params);
 
+      // Update UI with current biome (throttled to every 500ms)
+      const currentTime = clock.getElapsedTime();
+      if (currentTime - lastBiomeUpdate.current > 0.5) {
+        lastBiomeUpdate.current = currentTime;
+        const pos = camera.position;
+        setCameraPosition({ x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) });
+        setCurrentBiome(chunkManager.getBiomeAt(pos.x, pos.z, params));
+      }
+
       renderer.render(scene, camera);
       requestAnimationFrame(animate);
     }
@@ -173,7 +193,20 @@ export default function App() {
       container.removeChild(renderer.domElement);
       renderer.dispose();
     };
-  }, [params]);
+  }, [params, waveStrength, waterOpacity]);
+
+  // Update water material uniforms when state changes
+  useEffect(() => {
+    if (chunkManagerRef.current?.waterMaterial) {
+      chunkManagerRef.current.waterMaterial.uniforms.waveStrength.value = waveStrength;
+    }
+  }, [waveStrength]);
+
+  useEffect(() => {
+    if (chunkManagerRef.current?.waterMaterial) {
+      chunkManagerRef.current.waterMaterial.uniforms.opacity.value = waterOpacity;
+    }
+  }, [waterOpacity]);
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
@@ -193,6 +226,22 @@ export default function App() {
         maxWidth: '300px',
       }}>
         <h3 style={{ margin: '0 0 15px 0' }}>Procedural Terrain</h3>
+        
+        {/* Current biome and position info */}
+        <div style={{ 
+          marginBottom: '15px', 
+          padding: '8px', 
+          background: 'rgba(255, 255, 255, 0.1)', 
+          borderRadius: '4px',
+          fontSize: '11px'
+        }}>
+          <div style={{ color: '#4CAF50', fontWeight: 'bold' }}>
+            Current Biome: {currentBiome.charAt(0).toUpperCase() + currentBiome.slice(1)}
+          </div>
+          <div style={{ color: '#ccc', marginTop: '2px' }}>
+            Position: {cameraPosition.x}, {cameraPosition.y}, {cameraPosition.z}
+          </div>
+        </div>
         
         <div style={{ marginBottom: '10px' }}>
           <label>Seed: </label>
@@ -267,16 +316,12 @@ export default function App() {
             min="0.0"
             max="0.3"
             step="0.02"
-            value={chunkManagerRef.current?.waterMaterial?.uniforms?.waveStrength?.value || 0.1}
-            onChange={(e) => {
-              if (chunkManagerRef.current?.waterMaterial?.uniforms?.waveStrength) {
-                chunkManagerRef.current.waterMaterial.uniforms.waveStrength.value = parseFloat(e.target.value);
-              }
-            }}
+            value={waveStrength}
+            onChange={(e) => setWaveStrength(parseFloat(e.target.value))}
             style={{ width: '100px', marginLeft: '10px' }}
           />
           <span style={{ marginLeft: '10px' }}>
-            {(chunkManagerRef.current?.waterMaterial?.uniforms?.waveStrength?.value || 0.1).toFixed(2)}
+            {waveStrength.toFixed(2)}
           </span>
         </div>
 
@@ -287,22 +332,18 @@ export default function App() {
             min="0.5"
             max="1.0"
             step="0.05"
-            value={chunkManagerRef.current?.waterMaterial?.uniforms?.opacity?.value || 0.8}
-            onChange={(e) => {
-              if (chunkManagerRef.current?.waterMaterial?.uniforms?.opacity) {
-                chunkManagerRef.current.waterMaterial.uniforms.opacity.value = parseFloat(e.target.value);
-              }
-            }}
+            value={waterOpacity}
+            onChange={(e) => setWaterOpacity(parseFloat(e.target.value))}
             style={{ width: '100px', marginLeft: '10px' }}
           />
           <span style={{ marginLeft: '10px' }}>
-            {(chunkManagerRef.current?.waterMaterial?.uniforms?.opacity?.value || 0.8).toFixed(2)}
+            {waterOpacity.toFixed(2)}
           </span>
         </div>
 
         <div style={{ fontSize: '10px', color: '#ccc', lineHeight: '1.4' }}>
           <div>WASD: Move | Space/Shift: Up/Down</div>
-          <div>Ctrl: Sprint | Click to lock mouse</div>
+          <div>Q: Sprint | Click to lock mouse</div>
           <div>Flat-shaded water with terrain-based transitions</div>
         </div>
       </div>

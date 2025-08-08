@@ -10,6 +10,7 @@ export class TerrainChunk {
   public terrainMesh?: THREE.Mesh;
   public isLoading = false;
   public isLoaded = false;
+  public heights?: Float32Array;
 
   constructor(coord: ChunkCoord) {
     this.coord = coord;
@@ -119,6 +120,11 @@ export class ChunkManager {
       chunk.terrainMesh.receiveShadow = true;
       this.scene.add(chunk.terrainMesh);
     }
+
+    // Authoritative heightfield for collision
+    if (result.heights) {
+      chunk.heights = result.heights;
+    }
   }
 
   public updateWater(time: number, cameraPosition: THREE.Vector3, terrainParams?: any) {
@@ -196,31 +202,41 @@ export class ChunkManager {
   }
 
   public getHeightAt(worldX: number, worldZ: number): number {
-    if (!this.currentTerrainParams) {
-      return 0;
-    }
-    
-    const { baseFrequency, baseAmplitude, detailFrequency, detailAmplitude, seed } = this.currentTerrainParams;
-    
-    // Get or create noise function for this seed (same as worker)
-    let noise2D = this.noiseCache.get(seed);
-    if (!noise2D) {
-      // Use exact same RNG setup as worker
-      const rng = this.createSeededRng(seed);
-      noise2D = createNoise2D(rng);
-      this.noiseCache.set(seed, noise2D);
-    }
-    
-    // Use exact same calculation as worker
-    const nx = worldX * baseFrequency;
-    const nz = worldZ * baseFrequency;
-    const dx = worldX * detailFrequency;
-    const dz = worldZ * detailFrequency;
-    
-    const baseHeight = baseAmplitude * noise2D(nx, nz);
-    const detailHeight = detailAmplitude * noise2D(dx, dz);
-    
-    return baseHeight + detailHeight;
+    // Sample authoritative heights from the owning chunk (bilinear)
+    const chunkX = Math.floor(worldX / CHUNK_WORLD_SIZE);
+    const chunkZ = Math.floor(worldZ / CHUNK_WORLD_SIZE);
+    const key = `${chunkX},${chunkZ}`;
+    const chunk = this.chunks.get(key);
+    if (!chunk || !chunk.heights) return -Infinity;
+
+    const localX = worldX - chunk.worldX;
+    const localZ = worldZ - chunk.worldZ;
+    const scale = CHUNK_WORLD_SIZE / (CHUNK_SIZE - 1);
+    const gx = localX / scale;
+    const gz = localZ / scale;
+
+    const x0 = Math.floor(gx);
+    const z0 = Math.floor(gz);
+    if (x0 < 0 || x0 >= CHUNK_SIZE - 1 || z0 < 0 || z0 >= CHUNK_SIZE - 1) return -Infinity;
+
+    const x1 = x0 + 1;
+    const z1 = z0 + 1;
+    const tx = gx - x0;
+    const tz = gz - z0;
+
+    const i00 = z0 * CHUNK_SIZE + x0;
+    const i10 = z0 * CHUNK_SIZE + x1;
+    const i01 = z1 * CHUNK_SIZE + x0;
+    const i11 = z1 * CHUNK_SIZE + x1;
+
+    const h00 = chunk.heights[i00];
+    const h10 = chunk.heights[i10];
+    const h01 = chunk.heights[i01];
+    const h11 = chunk.heights[i11];
+
+    const y0 = h00 * (1 - tx) + h10 * tx;
+    const y1 = h01 * (1 - tx) + h11 * tx;
+    return y0 * (1 - tz) + y1 * tz;
   }
 
   // Exact same RNG functions as worker
@@ -250,6 +266,75 @@ export class ChunkManager {
     const seedFn = this.xmur3(seed);
     const rng = this.mulberry32(seedFn());
     return rng;
+  }
+
+  public getBiomeAt(worldX: number, worldZ: number, terrainParams?: any): string {
+    if (!terrainParams) {
+      return 'Unknown';
+    }
+    
+    // Replicate the biome detection logic from the worker
+    const BIOME_FREQ = 0.0004;
+    const WARP_STRENGTH = 60;
+    
+    // Get or create noise functions for biome detection
+    const seed = terrainParams.seed || 'terrain-42';
+    let noiseBase = this.noiseCache.get(seed + '_base');
+    let noiseTemp = this.noiseCache.get(seed + '_temp');  
+    let noiseMoist = this.noiseCache.get(seed + '_moist');
+    
+    if (!noiseBase) {
+      const rng = this.createSeededRng(seed + '_base');
+      noiseBase = createNoise2D(rng);
+      this.noiseCache.set(seed + '_base', noiseBase);
+    }
+    
+    if (!noiseTemp) {
+      const rng = this.createSeededRng(seed + '_temp');
+      noiseTemp = createNoise2D(rng);
+      this.noiseCache.set(seed + '_temp', noiseTemp);
+    }
+    
+    if (!noiseMoist) {
+      const rng = this.createSeededRng(seed + '_moist');
+      noiseMoist = createNoise2D(rng);
+      this.noiseCache.set(seed + '_moist', noiseMoist);
+    }
+    
+    // Domain warp for biome masks
+    const wx = worldX + WARP_STRENGTH * noiseBase(worldX * BIOME_FREQ * 0.7, worldZ * BIOME_FREQ * 0.7);
+    const wz = worldZ + WARP_STRENGTH * noiseBase(worldX * BIOME_FREQ * 0.9 + 123.45, worldZ * BIOME_FREQ * 0.9 - 321.0);
+
+    // Temperature and moisture
+    const t = Math.max(0, Math.min(1, 0.5 + 0.5 * noiseTemp(wx * BIOME_FREQ, wz * BIOME_FREQ)));
+    const m = Math.max(0, Math.min(1, 0.5 + 0.5 * noiseMoist(wx * (BIOME_FREQ * 1.1) + 17.3, wz * (BIOME_FREQ * 1.1) - 42.7)));
+
+    // Biome selection (replicated from worker)
+    const biomes = [
+      { name: 'desert',   t: 0.9, m: 0.1 },
+      { name: 'savanna',  t: 0.8, m: 0.3 },
+      { name: 'grass',    t: 0.7, m: 0.5 },
+      { name: 'forest',   t: 0.6, m: 0.75 },
+      { name: 'rain',     t: 0.85, m: 0.9 },
+      { name: 'taiga',    t: 0.35, m: 0.55 },
+      { name: 'tundra',   t: 0.2, m: 0.3 },
+      { name: 'alpine',   t: 0.1, m: 0.4 },
+    ];
+    
+    let best = biomes[0];
+    let bestDistance = Infinity;
+    
+    for (const biome of biomes) {
+      const dt = t - biome.t;
+      const dm = m - biome.m;
+      const distance = dt * dt + dm * dm;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = biome;
+      }
+    }
+    
+    return best.name;
   }
 
   public dispose() {

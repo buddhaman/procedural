@@ -32,24 +32,51 @@ function createSeededRng(seed: string) {
   return rng;
 }
 
-function getTerrainColor(height: number): [number, number, number] {
-  if (height < WATER_LEVEL - 2) {
-    // Deep water/sand
-    return [0.8, 0.7, 0.5];
-  } else if (height < WATER_LEVEL + 2) {
-    // Beach/shallow
-    return [0.9, 0.8, 0.6];
-  } else if (height < 15) {
-    // Grass
-    return [0.3, 0.6, 0.2];
-  } else if (height < 30) {
-    // Forest
-    return [0.2, 0.4, 0.1];
-  } else {
-    // Mountain/rock
-    return [0.5, 0.5, 0.5];
+type BiomePrototype = {
+  name: string;
+  t: number; // temperature center [0..1]
+  m: number; // moisture center [0..1]
+  ridgedWeight: number; // 0 billowy .. 1 ridged
+  amplitudeScale: number; // overall amplitude multiplier
+  detailScale: number; // detail amplitude multiplier
+  baseColor: [number, number, number];
+  baseFreqScale: number; // frequency multiplier for base terrain (lower = wider features)
+  detailFreqScale: number; // frequency multiplier for detail noise
+};
+
+const BIOMES: BiomePrototype[] = [
+  // Flat/low terrain biomes - higher frequencies for smaller features
+  { name: 'desert',   t: 0.9, m: 0.1, ridgedWeight: 0.1, amplitudeScale: 0.5, detailScale: 0.2, baseColor: [0.86, 0.78, 0.58], baseFreqScale: 1.0, detailFreqScale: 1.0 },
+  { name: 'savanna',  t: 0.8, m: 0.3, ridgedWeight: 0.2, amplitudeScale: 0.6, detailScale: 0.3, baseColor: [0.72, 0.68, 0.35], baseFreqScale: 1.0, detailFreqScale: 1.0 },
+  { name: 'grass',    t: 0.7, m: 0.5, ridgedWeight: 0.2, amplitudeScale: 0.5, detailScale: 0.4, baseColor: [0.28, 0.62, 0.26], baseFreqScale: 1.0, detailFreqScale: 1.0 },
+  
+  // Medium terrain biomes - moderate frequencies
+  { name: 'forest',   t: 0.6, m: 0.75, ridgedWeight: 0.35, amplitudeScale: 0.8, detailScale: 0.5, baseColor: [0.2, 0.44, 0.18], baseFreqScale: 0.7, detailFreqScale: 0.9 },
+  { name: 'rain',     t: 0.85, m: 0.9, ridgedWeight: 0.4, amplitudeScale: 0.7, detailScale: 0.6, baseColor: [0.15, 0.5, 0.2], baseFreqScale: 0.8, detailFreqScale: 1.0 },
+  { name: 'taiga',    t: 0.35, m: 0.55, ridgedWeight: 0.5, amplitudeScale: 1.0, detailScale: 0.4, baseColor: [0.22, 0.5, 0.38], baseFreqScale: 0.6, detailFreqScale: 0.8 },
+  
+  // Mountain biomes - very low frequencies for massive, wide mountains
+  { name: 'tundra',   t: 0.2, m: 0.3, ridgedWeight: 0.6, amplitudeScale: 1.5, detailScale: 0.3, baseColor: [0.6, 0.6, 0.6], baseFreqScale: 0.3, detailFreqScale: 0.7 },
+  { name: 'alpine',   t: 0.1, m: 0.4, ridgedWeight: 0.9, amplitudeScale: 2.5, detailScale: 0.25, baseColor: [0.55, 0.55, 0.55], baseFreqScale: 0.15, detailFreqScale: 0.5 },
+];
+
+function pickBiome(t: number, m: number): BiomePrototype {
+  let best = BIOMES[0];
+  let bestD = Infinity;
+  for (const b of BIOMES) {
+    const dt = t - b.t;
+    const dm = m - b.m;
+    const d = dt * dt + dm * dm;
+    if (d < bestD) {
+      bestD = d;
+      best = b;
+    }
   }
+  return best;
 }
+
+function lerp(a: number, b: number, t: number): number { return a + (b - a) * t; }
+function saturate(x: number): number { return Math.min(1, Math.max(0, x)); }
 
 function buildChunkGeometry(params: ChunkParams): WorkerResult {
   const {
@@ -69,8 +96,19 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
   // Use CHUNK_SIZE instead of params.size for consistent chunk dimensions
   const chunkSize = CHUNK_SIZE;
   
-  const rng = createSeededRng(seed);
-  const noise2D = createNoise2D(rng);
+  // Multiple noise sources for terrain and biomes
+  const noiseBase = createNoise2D(createSeededRng(seed + '_base'));
+  const noiseDetail = createNoise2D(createSeededRng(seed + '_detail'));
+  const noiseRidged = createNoise2D(createSeededRng(seed + '_ridged'));
+  const noiseBillow = createNoise2D(createSeededRng(seed + '_billow'));
+  const noiseTemp = createNoise2D(createSeededRng(seed + '_temp'));
+  const noiseMoist = createNoise2D(createSeededRng(seed + '_moist'));
+  const noiseVeg = createNoise2D(createSeededRng(seed + '_veg'));
+  
+  // Minecraft-inspired terrain control noise layers
+  const noiseContinentalness = createNoise2D(createSeededRng(seed + '_continental'));
+  const noiseErosion = createNoise2D(createSeededRng(seed + '_erosion'));
+  const noisePeaksValleys = createNoise2D(createSeededRng(seed + '_peaks'));
 
   // Derive world vertex spacing from constants to match sampler and chunk placement
   const worldScale = CHUNK_WORLD_SIZE / (chunkSize - 1);
@@ -87,20 +125,75 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
 
   // Generate height grid first
   const heightGrid: number[][] = [];
+  const colorGridR: number[][] = [];
+  const colorGridG: number[][] = [];
+  const colorGridB: number[][] = [];
+  // Minecraft-inspired multi-scale noise system
+  const BIOME_FREQ = 0.0004; // Larger biome regions but not massive (was 0.0006, then 0.0002)
+  const CONTINENTALNESS_FREQ = 0.0001; // Very large scale terrain regions
+  const EROSION_FREQ = 0.0008; // Controls mountain vs flat terrain
+  const PEAKS_VALLEYS_FREQ = 0.004; // Fine-tunes mountain sharpness
+  const WARP_STRENGTH = 60; // Increased domain warp for more interesting biome borders
   for (let z = 0; z < chunkSize; z++) {
     heightGrid[z] = [];
+    colorGridR[z] = [];
+    colorGridG[z] = [];
+    colorGridB[z] = [];
     for (let x = 0; x < chunkSize; x++) {
       const worldX = worldOffsetX + x * worldScale;
       const worldZ = worldOffsetZ + z * worldScale;
       
-      const nx = worldX * baseFrequency;
-      const nz = worldZ * baseFrequency;
-      const dx = worldX * detailFrequency;
-      const dz = worldZ * detailFrequency;
+      // Minecraft-inspired terrain control layers
+      const continentalness = saturate(0.5 + 0.5 * noiseContinentalness(worldX * CONTINENTALNESS_FREQ, worldZ * CONTINENTALNESS_FREQ));
+      const erosion = saturate(0.5 + 0.5 * noiseErosion(worldX * EROSION_FREQ, worldZ * EROSION_FREQ));
+      const peaksValleys = saturate(0.5 + 0.5 * noisePeaksValleys(worldX * PEAKS_VALLEYS_FREQ, worldZ * PEAKS_VALLEYS_FREQ));
+
+      // Domain warp inputs for biome masks
+      const wx = worldX + WARP_STRENGTH * noiseBase(worldX * BIOME_FREQ * 0.7, worldZ * BIOME_FREQ * 0.7);
+      const wz = worldZ + WARP_STRENGTH * noiseBase(worldX * BIOME_FREQ * 0.9 + 123.45, worldZ * BIOME_FREQ * 0.9 - 321.0);
+
+      // Temperature and moisture in [0,1]
+      let t = saturate(0.5 + 0.5 * noiseTemp(wx * BIOME_FREQ, wz * BIOME_FREQ));
+      let m = saturate(0.5 + 0.5 * noiseMoist(wx * (BIOME_FREQ * 1.1) + 17.3, wz * (BIOME_FREQ * 1.1) - 42.7));
+
+      // Altitude affects temperature (higher = colder)
+      const elevationInfluence = Math.pow(continentalness, 1.5) * (1.0 - erosion);
+      t = saturate(t - elevationInfluence * 0.4);
+
+      const biome = pickBiome(t, m);
+
+      // Calculate biome-specific frequencies
+      const biomeBaseFreq = baseFrequency * biome.baseFreqScale;
+      const biomeDetailFreq = detailFrequency * biome.detailFreqScale;
+
+      // Multi-scale terrain synthesis
+      // 1. Continental base height - controls overall elevation
+      const continentalHeight = continentalness * baseAmplitude * 1.5;
       
-      const baseHeight = baseAmplitude * noise2D(nx, nz);
-      const detailHeight = detailAmplitude * noise2D(dx, dz);
-      heightGrid[z][x] = baseHeight + detailHeight;
+      // 2. Erosion controls mountainous vs flat terrain
+      const erosionFactor = 1.0 - erosion; // Higher erosion = flatter
+      
+      // 3. Base terrain features using biome-specific frequencies
+      const ridgedVal = 1 - Math.abs(noiseRidged(worldX * biomeBaseFreq, worldZ * biomeBaseFreq));
+      const billowVal = Math.abs(noiseBillow(worldX * biomeBaseFreq, worldZ * biomeBaseFreq));
+      const baseMix = lerp(billowVal, ridgedVal, biome.ridgedWeight);
+      
+      // 4. Scale terrain features by erosion and peaks/valleys
+      const terrainScale = erosionFactor * (0.3 + 0.7 * peaksValleys);
+      const baseHeight = continentalHeight + baseAmplitude * biome.amplitudeScale * terrainScale * (baseMix * 2 - 1);
+
+      // 5. Detail layer using biome-specific detail frequency
+      const detailVal = noiseDetail(worldX * biomeDetailFreq, worldZ * biomeDetailFreq);
+      const detailHeight = detailAmplitude * biome.detailScale * erosionFactor * detailVal;
+
+      const height = baseHeight + detailHeight;
+      heightGrid[z][x] = height;
+
+      // Biome-driven color with gentle height shading
+      const shade = saturate(0.85 + 0.15 * (height / (baseAmplitude * 1.2)));
+      colorGridR[z][x] = saturate(biome.baseColor[0] * shade);
+      colorGridG[z][x] = saturate(biome.baseColor[1] * shade);
+      colorGridB[z][x] = saturate(biome.baseColor[2] * shade);
     }
   }
 
@@ -126,7 +219,10 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
       const z11 = (z + 1) * worldScale;
 
       // Triangle 1: (x,z) -> (x,z+1) -> (x+1,z)
-      const tri1Color = getTerrainColor((h00 + h01 + h10) / 3); // Average height for triangle color
+      const r1 = (colorGridR[z][x] + colorGridR[z + 1][x] + colorGridR[z][x + 1]) / 3;
+      const g1 = (colorGridG[z][x] + colorGridG[z + 1][x] + colorGridG[z][x + 1]) / 3;
+      const b1 = (colorGridB[z][x] + colorGridB[z + 1][x] + colorGridB[z][x + 1]) / 3;
+      const tri1Color: [number, number, number] = [r1, g1, b1];
       addFlatTriangle(positions, normals, colors, waterMask, vertexIndex,
         x00, h00, z00,  // vertex 0
         x01, h01, z01,  // vertex 1  
@@ -136,7 +232,10 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
       vertexIndex += 3;
 
       // Triangle 2: (x+1,z) -> (x,z+1) -> (x+1,z+1)
-      const tri2Color = getTerrainColor((h10 + h01 + h11) / 3); // Average height for triangle color
+      const r2 = (colorGridR[z][x + 1] + colorGridR[z + 1][x] + colorGridR[z + 1][x + 1]) / 3;
+      const g2 = (colorGridG[z][x + 1] + colorGridG[z + 1][x] + colorGridG[z + 1][x + 1]) / 3;
+      const b2 = (colorGridB[z][x + 1] + colorGridB[z + 1][x] + colorGridB[z + 1][x + 1]) / 3;
+      const tri2Color: [number, number, number] = [r2, g2, b2];
       addFlatTriangle(positions, normals, colors, waterMask, vertexIndex,
         x10, h10, z10,  // vertex 0
         x01, h01, z01,  // vertex 1
@@ -149,7 +248,7 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
 
   // Add vegetation using noise-based placement
   const vegetationBuilder = new GeometryBuilder();
-  addVegetation(vegetationBuilder, heightGrid, chunkSize, worldScale, worldOffsetX, worldOffsetZ, noise2D);
+  addVegetation(vegetationBuilder, heightGrid, chunkSize, worldScale, worldOffsetX, worldOffsetZ, noiseVeg);
   
   // Get vegetation geometry
   const vegGeometry = vegetationBuilder.getGeometry();
@@ -178,12 +277,21 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
   // No indices needed for flat shading - we use the vertices directly
   const indices = new Uint16Array(0);
 
+  // Flatten height grid to Float32Array for collision sampling (single source of truth)
+  const heights = new Float32Array(chunkSize * chunkSize);
+  for (let z = 0; z < chunkSize; z++) {
+    for (let x = 0; x < chunkSize; x++) {
+      heights[z * chunkSize + x] = heightGrid[z][x];
+    }
+  }
+
   return {
     positions: combinedPositions,
     normals: combinedNormals,
     indices,
     colors: combinedColors,
     waterMask: combinedWaterMask,
+    heights,
     size: chunkSize,
     scale: worldScale,
     chunkX,
