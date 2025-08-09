@@ -238,8 +238,9 @@ export class GeometryBuilder {
 
     // Variation diminishes with depth (shallower branches get less variation)
     const variationDepthFactor = Math.max(0.2, Math.min(1, depth / Math.max(1, initialDepth)));
-    const directionJitterAmplitude = stepLength * 0.1 * variationDepthFactor; // moderate jitter
-    const lengthJitterAmplitude = 0.1 * variationDepthFactor; // fraction of step length
+    // Increase lateral wander to widen crowns
+    const directionJitterAmplitude = stepLength * 0.25 * variationDepthFactor;
+    const lengthJitterAmplitude = 0.12 * variationDepthFactor; // fraction of step length
 
     let cx = fx;
     let cy = fy;
@@ -270,7 +271,8 @@ export class GeometryBuilder {
       // Pull horizontal drift slightly back toward the ideal straight path to avoid one-sided bias
       const idealX = fx + baseStepX * (i + 1);
       const idealZ = fz + baseStepZ * (i + 1);
-      const biasDamp = 0.05 + 0.4 * variationDepthFactor; // even less damping near tips for maximum spread
+      // Reduce damping toward the ideal path so branches can drift wider
+      const biasDamp = 0.02 + 0.25 * variationDepthFactor;
       nx = idealX + (nx - idealX) * biasDamp;
       nz = idealZ + (nz - idealZ) * biasDamp;
 
@@ -285,8 +287,8 @@ export class GeometryBuilder {
       const hz = nz - cz;
       const horizMag = Math.sqrt(hx * hx + hz * hz) || 0.00001;
       // Local cone cap based on depth (match child branch cap below)
-      const maxAngleNearTrunk = 0.55; // ~31.5°
-      const maxAngleNearLeaves = 1.2;  // ~68.8° (much more spread near top)
+      const maxAngleNearTrunk = 0.9; // ~51.6°
+      const maxAngleNearLeaves = 1.35;  // ~77.4° (very wide near top)
       const depthRatioLocal2 = depth / Math.max(1, initialDepth);
       const localAngleCap = maxAngleNearLeaves + (maxAngleNearTrunk - maxAngleNearLeaves) * depthRatioLocal2;
       const allowedHoriz = Math.tan(localAngleCap) * Math.max(hy, 0.00001);
@@ -300,7 +302,7 @@ export class GeometryBuilder {
 
       // Slight taper along the branch
       const t = i / Math.max(1, segmentCount - 1);
-      const segWidth = Math.max(minBranchWidth, baseWidth * (1 - t * 0.15));
+      const segWidth = Math.max(minBranchWidth, baseWidth * (1 - t * 0.1));
 
       this.addBeam([cx, cy, cz], [nx, ny, nz], segWidth, segWidth * 0.85, barkColor, 6);
 
@@ -351,16 +353,16 @@ export class GeometryBuilder {
 
         // Branch parameters
         const depthRatio = depth / Math.max(1, initialDepth);
-        const maxAngleNearTrunk = 0.75; // ~43°
-        const maxAngleNearLeaves = 1.3;  // ~74.5° (extremely spread near top)
+        const maxAngleNearTrunk = 1.0; // ~57.3°
+        const maxAngleNearLeaves = 1.35;  // ~77.4°
         const maxOffVertical = maxAngleNearLeaves + (maxAngleNearTrunk - maxAngleNearLeaves) * depthRatio;
 
-        const angleJitter = (rnd1 - 0.5) * 2 * 0.75; // very wide spread
+        const angleJitter = (rnd1 - 0.5) * 2 * 0.9; // allow branching further from initial angle
         let branchAngle = angle + angleJitter;
         if (branchAngle > maxOffVertical) branchAngle = maxOffVertical;
         if (branchAngle < -maxOffVertical) branchAngle = -maxOffVertical;
 
-        const branchLength = length * (0.6 + rnd2 * 0.3);
+        const branchLength = length * (0.65 + rnd2 * 0.35);
         // Distribute yaw evenly among siblings with small jitter to avoid directional bias
         const baseYaw = (2 * Math.PI * i) / numBranches;
         const yawJitter = (rnd3 - 0.5) * Math.PI * 0.15; // keep yaw controlled, rely on angle spread
