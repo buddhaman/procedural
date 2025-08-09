@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { createNoise2D } from 'simplex-noise';
 import { ChunkParams, WorkerResult, ChunkCoord, CHUNK_SIZE, CHUNK_WORLD_SIZE, RENDER_DISTANCE, WATER_LEVEL } from './types';
 import { createWaterMaterial } from './WaterShader';
+import { BiomeGenerator } from './BiomeGenerator';
 
 export class TerrainChunk {
   public readonly coord: ChunkCoord;
@@ -38,7 +38,8 @@ export class ChunkManager {
   private waterPlane?: THREE.Mesh;
   public waterMaterial: THREE.ShaderMaterial;
   private currentTerrainParams: any;
-  private noiseCache = new Map<string, any>();
+  private biomeGenerator?: BiomeGenerator;
+  private currentSeed?: string;
 
   constructor(scene: THREE.Scene, workerCount = 4) {
     this.scene = scene;
@@ -160,6 +161,12 @@ export class ChunkManager {
     // Store current terrain parameters for height sampling
     this.currentTerrainParams = terrainParams;
     
+    // Initialize or update biome generator if seed changed
+    if (!this.biomeGenerator || this.currentSeed !== terrainParams.seed) {
+      this.biomeGenerator = new BiomeGenerator(terrainParams.seed);
+      this.currentSeed = terrainParams.seed;
+    }
+    
     const playerChunkX = Math.floor(playerPosition.x / CHUNK_WORLD_SIZE);
     const playerChunkZ = Math.floor(playerPosition.z / CHUNK_WORLD_SIZE);
 
@@ -239,102 +246,24 @@ export class ChunkManager {
     return y0 * (1 - tz) + y1 * tz;
   }
 
-  // Exact same RNG functions as worker
-  private xmur3(str: string) {
-    let h = 1779033703 ^ str.length;
-    for (let i = 0; i < str.length; i++) {
-      h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
-      h = (h << 13) | (h >>> 19);
-    }
-    return function () {
-      h = Math.imul(h ^ (h >>> 16), 2246822507);
-      h = Math.imul(h ^ (h >>> 13), 3266489909);
-      return (h ^= h >>> 16) >>> 0;
-    };
-  }
-
-  private mulberry32(a: number) {
-    return function () {
-      let t = (a += 0x6d2b79f5);
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
-  private createSeededRng(seed: string) {
-    const seedFn = this.xmur3(seed);
-    const rng = this.mulberry32(seedFn());
-    return rng;
-  }
-
   public getBiomeAt(worldX: number, worldZ: number, terrainParams?: any): string {
-    if (!terrainParams) {
+    if (!this.biomeGenerator || !terrainParams) {
       return 'Unknown';
     }
     
-    // Replicate the biome detection logic from the worker
-    const BIOME_FREQ = 0.0004;
-    const WARP_STRENGTH = 60;
+    // Generate biome parameters for this position
+    const biomeParams = this.biomeGenerator.generateBiomeParams(worldX, worldZ);
     
-    // Get or create noise functions for biome detection
-    const seed = terrainParams.seed || 'terrain-42';
-    let noiseBase = this.noiseCache.get(seed + '_base');
-    let noiseTemp = this.noiseCache.get(seed + '_temp');  
-    let noiseMoist = this.noiseCache.get(seed + '_moist');
-    
-    if (!noiseBase) {
-      const rng = this.createSeededRng(seed + '_base');
-      noiseBase = createNoise2D(rng);
-      this.noiseCache.set(seed + '_base', noiseBase);
-    }
-    
-    if (!noiseTemp) {
-      const rng = this.createSeededRng(seed + '_temp');
-      noiseTemp = createNoise2D(rng);
-      this.noiseCache.set(seed + '_temp', noiseTemp);
-    }
-    
-    if (!noiseMoist) {
-      const rng = this.createSeededRng(seed + '_moist');
-      noiseMoist = createNoise2D(rng);
-      this.noiseCache.set(seed + '_moist', noiseMoist);
-    }
-    
-    // Domain warp for biome masks
-    const wx = worldX + WARP_STRENGTH * noiseBase(worldX * BIOME_FREQ * 0.7, worldZ * BIOME_FREQ * 0.7);
-    const wz = worldZ + WARP_STRENGTH * noiseBase(worldX * BIOME_FREQ * 0.9 + 123.45, worldZ * BIOME_FREQ * 0.9 - 321.0);
+    // Get biome name
+    return this.biomeGenerator.getBiomeName(biomeParams);
+  }
 
-    // Temperature and moisture
-    const t = Math.max(0, Math.min(1, 0.5 + 0.5 * noiseTemp(wx * BIOME_FREQ, wz * BIOME_FREQ)));
-    const m = Math.max(0, Math.min(1, 0.5 + 0.5 * noiseMoist(wx * (BIOME_FREQ * 1.1) + 17.3, wz * (BIOME_FREQ * 1.1) - 42.7)));
-
-    // Biome selection (replicated from worker)
-    const biomes = [
-      { name: 'desert',   t: 0.9, m: 0.1 },
-      { name: 'savanna',  t: 0.8, m: 0.3 },
-      { name: 'grass',    t: 0.7, m: 0.5 },
-      { name: 'forest',   t: 0.6, m: 0.75 },
-      { name: 'rain',     t: 0.85, m: 0.9 },
-      { name: 'taiga',    t: 0.35, m: 0.55 },
-      { name: 'tundra',   t: 0.2, m: 0.3 },
-      { name: 'alpine',   t: 0.1, m: 0.4 },
-    ];
-    
-    let best = biomes[0];
-    let bestDistance = Infinity;
-    
-    for (const biome of biomes) {
-      const dt = t - biome.t;
-      const dm = m - biome.m;
-      const distance = dt * dt + dm * dm;
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = biome;
-      }
+  public getBiomeParamsAt(worldX: number, worldZ: number) {
+    if (!this.biomeGenerator) {
+      return null;
     }
     
-    return best.name;
+    return this.biomeGenerator.generateBiomeParams(worldX, worldZ);
   }
 
   public dispose() {

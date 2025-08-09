@@ -31,6 +31,7 @@ export default function App() {
   const [waterOpacity, setWaterOpacity] = useState(0.8);
   const [currentBiome, setCurrentBiome] = useState<string>('Unknown');
   const [cameraPosition, setCameraPosition] = useState({ x: 0, y: 0, z: 0 });
+  const [biomeParams, setBiomeParams] = useState<any>(null);
   const chunkManagerRef = useRef<ChunkManager | null>(null);
   const lastBiomeUpdate = useRef<number>(0);
 
@@ -170,6 +171,10 @@ export default function App() {
         const pos = camera.position;
         setCameraPosition({ x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) });
         setCurrentBiome(chunkManager.getBiomeAt(pos.x, pos.z, params));
+        
+        // Get detailed biome parameters for debug display
+        const detailedParams = chunkManager.getBiomeParamsAt(pos.x, pos.z);
+        setBiomeParams(detailedParams);
       }
 
       renderer.render(scene, camera);
@@ -242,6 +247,43 @@ export default function App() {
             Position: {cameraPosition.x}, {cameraPosition.y}, {cameraPosition.z}
           </div>
         </div>
+
+        {/* Detailed biome parameters */}
+        {biomeParams && (
+          <div style={{ 
+            marginBottom: '15px', 
+            padding: '8px', 
+            background: 'rgba(0, 100, 200, 0.1)', 
+            borderRadius: '4px',
+            fontSize: '10px',
+            fontFamily: 'monospace'
+          }}>
+            <div style={{ color: '#87CEEB', fontWeight: 'bold', marginBottom: '5px' }}>
+              Biome Parameters (Live Debug):
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px', fontSize: '9px' }}>
+              <div>C: <span style={{ color: '#FFB347' }}>{biomeParams.continentalness.toFixed(3)}</span></div>
+              <div>E: <span style={{ color: '#FFB347' }}>{biomeParams.erosion.toFixed(3)}</span></div>
+              <div>T: <span style={{ color: '#FF6B6B' }}>{biomeParams.temperature.toFixed(3)}</span></div>
+              <div>M: <span style={{ color: '#4ECDC4' }}>{biomeParams.moisture.toFixed(3)}</span></div>
+              <div>Mmask: <span style={{ color: '#95E1D3' }}>{biomeParams.mountainMask.toFixed(3)}</span></div>
+              <div>R: <span style={{ color: '#DDA0DD' }}>{biomeParams.relief.toFixed(3)}</span></div>
+              <div>D: <span style={{ color: '#F0E68C' }}>{biomeParams.detail.toFixed(3)}</span></div>
+              <div>Base: <span style={{ color: '#98FB98' }}>{biomeParams.baseHeight.toFixed(1)}</span></div>
+            </div>
+            
+            <div style={{ marginTop: '5px', fontSize: '9px' }}>
+              <div>Warped: <span style={{ color: '#FFA07A' }}>({biomeParams.warpedX.toFixed(0)}, {biomeParams.warpedY.toFixed(0)})</span></div>
+              <div>Final Height: <span style={{ color: '#90EE90' }}>{biomeParams.finalHeight.toFixed(2)}</span></div>
+            </div>
+            
+            <div style={{ marginTop: '8px', fontSize: '8px', color: '#aaa', lineHeight: '1.2' }}>
+              C=continentalness, E=erosion, T=temperature, M=moisture<br/>
+              Mmask=mountain mask, R=relief, D=detail
+            </div>
+          </div>
+        )}
         
         <div style={{ marginBottom: '10px' }}>
           <label>Seed: </label>

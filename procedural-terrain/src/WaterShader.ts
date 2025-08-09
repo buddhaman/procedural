@@ -114,6 +114,5 @@ export function createWaterMaterial(waterLevel: number = 0): THREE.ShaderMateria
     side: THREE.DoubleSide,
     depthWrite: false,
     // True flat shading
-    flatShading: true,
   });
 }
