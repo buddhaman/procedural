@@ -177,7 +177,7 @@ export class CreatureRenderer {
     this.renderer = new InstancedRenderer(scene);
   }
   
-  renderSkeleton(skeleton: Skeleton, color: number, headIdx: number, offset: V3 = { x: 0, y: 0, z: 0 }): void {
+  renderSkeleton(skeleton: Skeleton, color: number, headIdx: number, orientation: number, offset: V3 = { x: 0, y: 0, z: 0 }): void {
     const colorObj = new THREE.Color(color);
     const from = new THREE.Vector3();
     const to = new THREE.Vector3();
@@ -220,28 +220,102 @@ export class CreatureRenderer {
       this.renderer.renderSphere(center, joint.r, colorObj);
     });
     
-    // Render eyes if not blinking
-    const shouldBlink = skeleton.blink > 2.5 && skeleton.blink < 2.7;
+    // Render cute face (like C++ code)
+    this.renderFace(skeleton, headIdx, orientation, colorObj, offset);
+  }
+  
+  private renderFace(skeleton: Skeleton, headIdx: number, orientation: number, bodyColor: THREE.Color, offset: V3): void {
+    const headParticle = skeleton.particles[skeleton.joints[headIdx].pIdx];
+    const headPos = new THREE.Vector3(
+      headParticle.pos.x + offset.x,
+      headParticle.pos.z + offset.z,
+      headParticle.pos.y + offset.y
+    );
+    
+    // Blinking logic
+    const shouldBlink = skeleton.blink > 0;
+    
     if (!shouldBlink) {
-      const headParticle = skeleton.particles[skeleton.joints[headIdx].pIdx];
+      // Eye parameters - properly sized relative to head
       const headRadius = skeleton.joints[headIdx].r;
-      const eyeColor = new THREE.Color(0x000000);
+      const eyeRadius = headRadius * 0.3; // About 30% of head radius (like your inspiration code)
+      const pupilRadius = 0.05; // Small fixed size for pupils
       
-      // Left eye
-      center.set(
-        headParticle.pos.x + headRadius * 0.3 + offset.x,
-        headParticle.pos.z + headRadius * 0.3 + offset.z,
-        headParticle.pos.y + headRadius * 0.2 + offset.y
-      );
-      this.renderer.renderSphere(center, 0.3, eyeColor);
+      // Direction vectors
+      const movementDir = new THREE.Vector3(Math.cos(orientation), 0, Math.sin(orientation));
+      const upVector = new THREE.Vector3(0, 1, 0);
+      const rightVector = new THREE.Vector3().crossVectors(upVector, movementDir).normalize();
       
-      // Right eye
-      center.set(
-        headParticle.pos.x + headRadius * 0.3 + offset.x,
-        headParticle.pos.z + headRadius * 0.3 + offset.z,
-        headParticle.pos.y - headRadius * 0.2 + offset.y
-      );
-      this.renderer.renderSphere(center, 0.3, eyeColor);
+      // Eye placement parameters (from your inspiration code)
+      const eyeVerticalOffset = 0.1;   // Slightly above center
+      const eyeHorizontalOffset = 0.45; // Left/right offset
+      const eyeForwardOffset = 0.9;    // Toward front of head
+      
+      // Calculate positions for eyes on the head surface
+      const leftEyeBasePos = new THREE.Vector3()
+        .addScaledVector(rightVector, -eyeHorizontalOffset)
+        .addScaledVector(upVector, eyeVerticalOffset)
+        .addScaledVector(movementDir, eyeForwardOffset);
+      
+      leftEyeBasePos.normalize().multiplyScalar(headRadius);
+      
+      const rightEyeBasePos = new THREE.Vector3()
+        .addScaledVector(rightVector, eyeHorizontalOffset)
+        .addScaledVector(upVector, eyeVerticalOffset)
+        .addScaledVector(movementDir, eyeForwardOffset);
+      
+      rightEyeBasePos.normalize().multiplyScalar(headRadius);
+      
+      // Final eye positions (relative to head center)
+      const leftEyePos = headPos.clone().add(leftEyeBasePos);
+      const rightEyePos = headPos.clone().add(rightEyeBasePos);
+      
+      // Render white eyes
+      const whiteColor = new THREE.Color(0xFFFFFF);
+      this.renderer.renderSphere(leftEyePos, eyeRadius, whiteColor);
+      this.renderer.renderSphere(rightEyePos, eyeRadius, whiteColor);
+      
+      // Calculate pupil positions (slightly in front of eyes in movement direction)
+      const pupilOffset = eyeRadius; // Pupils sit on the surface of eyes facing forward
+      const leftPupilPos = leftEyePos.clone().add(movementDir.clone().multiplyScalar(pupilOffset));
+      const rightPupilPos = rightEyePos.clone().add(movementDir.clone().multiplyScalar(pupilOffset));
+      
+      // Render black pupils
+      const blackColor = new THREE.Color(0x000000);
+      this.renderer.renderSphere(leftPupilPos, pupilRadius, blackColor);
+      this.renderer.renderSphere(rightPupilPos, pupilRadius, blackColor);
+    } else {
+      // When blinking, render closed eyes with body color
+      const headRadius = skeleton.joints[headIdx].r;
+      const eyeRadius = headRadius * 0.3;
+      
+      // Same eye positioning as above but with body color
+      const movementDir = new THREE.Vector3(Math.cos(orientation), 0, Math.sin(orientation));
+      const upVector = new THREE.Vector3(0, 1, 0);
+      const rightVector = new THREE.Vector3().crossVectors(upVector, movementDir).normalize();
+      
+      const eyeVerticalOffset = 0.1;
+      const eyeHorizontalOffset = 0.45;
+      const eyeForwardOffset = 0.9;
+      
+      const leftEyeBasePos = new THREE.Vector3()
+        .addScaledVector(rightVector, -eyeHorizontalOffset)
+        .addScaledVector(upVector, eyeVerticalOffset)
+        .addScaledVector(movementDir, eyeForwardOffset);
+      leftEyeBasePos.normalize().multiplyScalar(headRadius);
+      
+      const rightEyeBasePos = new THREE.Vector3()
+        .addScaledVector(rightVector, eyeHorizontalOffset)
+        .addScaledVector(upVector, eyeVerticalOffset)
+        .addScaledVector(movementDir, eyeForwardOffset);
+      rightEyeBasePos.normalize().multiplyScalar(headRadius);
+      
+      const leftEyePos = headPos.clone().add(leftEyeBasePos);
+      const rightEyePos = headPos.clone().add(rightEyeBasePos);
+      
+      // Render closed eyes with body color
+      this.renderer.renderSphere(leftEyePos, eyeRadius, bodyColor);
+      this.renderer.renderSphere(rightEyePos, eyeRadius, bodyColor);
     }
   }
   

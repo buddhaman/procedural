@@ -255,19 +255,29 @@ export function tickAgent(a: Agent, dt: number, getHeightAt?: (x: number, z: num
   const dir: V2 = { x: Math.cos(a.orientation), y: Math.sin(a.orientation) };
   const center: V3 = { x: a.pos.x, y: a.pos.y, z: 0 };
   
-  // Body gravity impulse
+  // Upward muscle forces for body (like in C++ code, but gentler)
   for (const si of a.spine) {
     const p = a.skeleton.joints[si].pIdx;
-    a.skeleton.particles[p].prev.z += 0.4;
+    // Add upward force by modifying previous position (creates velocity)
+    a.skeleton.particles[p].prev.z -= 0.2 * dt * 60; // Reduced from 0.4 to 0.2
   }
   
-  // Feet placement (IK-lite) with terrain height
+  // Better foot placement system (similar to C++ code)
   for (const leg of a.legs) {
     const j = a.skeleton.joints[leg.jointIdx].pIdx;
-    const target = xform(center, dir, leg.targetOffset);
+    const worldTarget = xform(center, dir, leg.targetOffset);
     
-    if (dist3(target, leg.footPos) > leg.stepRadius) {
-      leg.footPos = add(target, mulV2to3(dir, Math.random() * leg.stepRadius));
+    // Check distance from current foot position to target (top-down view)
+    const footDist2D = Math.sqrt(
+      Math.pow(worldTarget.x - leg.footPos.x, 2) + 
+      Math.pow(worldTarget.y - leg.footPos.y, 2)
+    );
+    
+    // Only move foot if it's too far away (prevents glitchy movement)
+    if (footDist2D > leg.stepRadius) {
+      // Move foot to target with small random offset in forward direction
+      leg.footPos.x = worldTarget.x + dir.x * Math.random() * leg.stepRadius * 0.5;
+      leg.footPos.y = worldTarget.y + dir.y * Math.random() * leg.stepRadius * 0.5;
       
       // Update foot position to terrain height
       if (getHeightAt) {
@@ -278,20 +288,33 @@ export function tickAgent(a: Agent, dt: number, getHeightAt?: (x: number, z: num
       }
     }
     
+    // Set foot particle position and lock it in place
     a.skeleton.particles[j].pos = { x: leg.footPos.x, y: leg.footPos.y, z: leg.footPos.z };
     a.skeleton.particles[j].prev = { ...a.skeleton.particles[j].pos };
   }
   
-  // Head follow
+  // Head positioning - keep head forward and up
   const h = a.skeleton.joints[a.headIdx].pIdx;
-  const headWorld = xform(center, dir, { x: 2.0, y: 0, z: 1.0 });
-  a.skeleton.particles[h].prev = { ...a.skeleton.particles[h].pos };
-  a.skeleton.particles[h].pos = add(a.skeleton.particles[h].pos, mul(sub(headWorld, a.skeleton.particles[h].pos), 0.1));
+  const headTarget = add(center, { x: dir.x * 2.0, y: dir.y * 2.0, z: 2.0 });
+  
+  // Smooth head movement towards target
+  const headCurrent = a.skeleton.particles[h].pos;
+  const headDiff = sub(headTarget, headCurrent);
+  a.skeleton.particles[h].pos = add(headCurrent, mul(headDiff, 0.1));
+  
+  // Add upward force to head for posture (gentler)
+  a.skeleton.particles[h].prev.z -= 0.15 * dt * 60; // Reduced from 0.3 to 0.15
   
   // Update skeleton with terrain collision
   updateSkeleton(a.skeleton, getHeightAt);
   
-  // Update blink timer
-  a.skeleton.blink += dt;
-  if (a.skeleton.blink > 3) a.skeleton.blink = 0;
+  // Blinking system (like C++ code)
+  if (Math.random() < 0.015) {
+    a.skeleton.blink = 8; // Set blink counter (frames)
+  }
+  
+  if (a.skeleton.blink > 0) {
+    a.skeleton.blink -= dt * 60; // Decrease blink counter
+    if (a.skeleton.blink < 0) a.skeleton.blink = 0;
+  }
 }

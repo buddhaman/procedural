@@ -132,6 +132,7 @@ export class CreatureSystem {
       this.agent.skeleton, 
       this.agent.color, 
       this.agent.headIdx,
+      this.agent.orientation,
       { x: 0, y: 0, z: 0 }
     );
     
