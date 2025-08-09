@@ -108,6 +108,23 @@ export class GeometryBuilder {
     }
   }
 
+  // Choose a bark color based on seed to get variety (e.g., birch-like white)
+  private chooseBarkColor(seed: number): [number, number, number] {
+    const r = this.seededRandom(seed * 13.37);
+    if (r < 0.2) {
+      // Birch: light, slightly warm white
+      return [0.85, 0.85, 0.8];
+    } else if (r < 0.45) {
+      // Light grey bark
+      return [0.6, 0.6, 0.58];
+    } else if (r < 0.75) {
+      // Medium brown
+      return [0.45, 0.28, 0.15];
+    }
+    // Darker bark
+    return [0.28, 0.18, 0.1];
+  }
+
   // Add a flat-shaded triangle
   private addFlatTriangle(
     v1: [number, number, number],
@@ -150,6 +167,7 @@ export class GeometryBuilder {
     depth: number,
     seed: number
   ) {
+    const barkColor = this.chooseBarkColor(seed);
     this.generateTreeBranch(
       [x, y, z],
       [x, y + height, z],
@@ -157,7 +175,7 @@ export class GeometryBuilder {
       angle,
       depth,
       seed,
-      [0.4, 0.2, 0.1], // Brown trunk color
+      barkColor, // Bark color varies by seed
       depth
     );
   }
@@ -174,6 +192,7 @@ export class GeometryBuilder {
     leafSize: number,
     leafColor: [number, number, number]
   ) {
+    const barkColor = this.chooseBarkColor(seed);
     this.generateTreeBranch(
       [x, y, z],
       [x, y + height, z],
@@ -181,7 +200,7 @@ export class GeometryBuilder {
       angle,
       depth,
       seed,
-      [0.4, 0.2, 0.1],
+      barkColor,
       depth,
       leafSize,
       leafColor
@@ -195,7 +214,7 @@ export class GeometryBuilder {
     angle: number,
     depth: number,
     seed: number,
-    color: [number, number, number],
+    barkColor: [number, number, number],
     initialDepth: number,
     leafSize?: number,
     leafColor?: [number, number, number]
@@ -259,7 +278,7 @@ export class GeometryBuilder {
       const horizMag = Math.sqrt(hx * hx + hz * hz) || 0.00001;
       // Local cone cap based on depth (match child branch cap below)
       const maxAngleNearTrunk = 0.55; // ~31.5°
-      const maxAngleNearLeaves = 0.35; // ~20°
+      const maxAngleNearLeaves = 0.5;  // ~28.6° (more spread near top)
       const depthRatio = depth / Math.max(1, initialDepth);
       const localAngleCap = maxAngleNearLeaves + (maxAngleNearTrunk - maxAngleNearLeaves) * depthRatio;
       const allowedHoriz = Math.tan(localAngleCap) * Math.max(hy, 0.00001);
@@ -275,7 +294,7 @@ export class GeometryBuilder {
       const t = i / Math.max(1, segmentCount - 1);
       const segWidth = Math.max(minBranchWidth, baseWidth * (1 - t * 0.15));
 
-      this.addBeam([cx, cy, cz], [nx, ny, nz], segWidth, segWidth * 0.85, color, 6);
+      this.addBeam([cx, cy, cz], [nx, ny, nz], segWidth, segWidth * 0.85, barkColor, 6);
 
       // Track last direction
       lastDirX = nx - cx;
@@ -308,10 +327,10 @@ export class GeometryBuilder {
         // Branch parameters
         const depthRatio = depth / Math.max(1, initialDepth);
         const maxAngleNearTrunk = 0.55; // ~31.5°
-        const maxAngleNearLeaves = 0.35; // ~20°
+        const maxAngleNearLeaves = 0.5;  // ~28.6° (more spread near top)
         const maxOffVertical = maxAngleNearLeaves + (maxAngleNearTrunk - maxAngleNearLeaves) * depthRatio;
 
-        const angleJitter = (rnd1 - 0.5) * 2 * 0.3; // ~±17° jitter
+        const angleJitter = (rnd1 - 0.5) * 2 * 0.4; // more spread
         let branchAngle = angle + angleJitter;
         if (branchAngle > maxOffVertical) branchAngle = maxOffVertical;
         if (branchAngle < -maxOffVertical) branchAngle = -maxOffVertical;
@@ -319,7 +338,7 @@ export class GeometryBuilder {
         const branchLength = length * (0.6 + rnd2 * 0.3);
         // Distribute yaw evenly among siblings with small jitter to avoid directional bias
         const baseYaw = (2 * Math.PI * i) / numBranches;
-        const yawJitter = (rnd3 - 0.5) * Math.PI * 0.2;
+        const yawJitter = (rnd3 - 0.5) * Math.PI * 0.3;
         const branchTilt = baseYaw + yawJitter;
 
         // Calculate branch end position
@@ -327,17 +346,8 @@ export class GeometryBuilder {
         const branchEndY = ty + Math.cos(branchAngle) * branchLength;
         const branchEndZ = tz + Math.sin(branchAngle) * Math.sin(branchTilt) * branchLength;
 
-        // Determine branch color (green for leaves on final branches)
-        let branchColor: [number, number, number];
-        if (depth === 1) {
-          branchColor = [
-            0.2 + rnd1 * 0.3,
-            0.4 + rnd2 * 0.4,
-            0.1 + rnd3 * 0.2,
-          ] as [number, number, number]; // Green leaves
-        } else {
-          branchColor = [0.3, 0.15, 0.05]; // Brown branches
-        }
+        // Use consistent bark color for all trunk/branch segments
+        let branchColor: [number, number, number] = barkColor;
 
         this.generateTreeBranch(
           [tx, ty, tz],
@@ -387,11 +397,11 @@ export class GeometryBuilder {
     const jitter = (scale: number, i: number) => (rand(i) * 2) * scale;
 
     // Central large leaf
-    this.addOrientedBox([cx, cy, cz], [dx, dy, dz], size * 1.6, color);
+    this.addOrientedBox([cx, cy, cz], [dx, dy, dz], size * 2.2, color);
 
     // Ring around (right/left/up/down offsets)
-    const ringOffset = size * 0.45;
-    const ringScale = size * 1.2;
+    const ringOffset = size * 0.7;
+    const ringScale = size * 2.0;
     const offsets: [number, number, number][] = [
       [rx, ry, rz], [-rx, -ry, -rz],
       [ux, uy, uz], [-ux, -uy, -uz],
@@ -405,8 +415,8 @@ export class GeometryBuilder {
     }
 
     // Diagonal fillers
-    const diagOffset = size * 0.35;
-    const diagScale = size * 1.0;
+    const diagOffset = size * 0.6;
+    const diagScale = size * 1.6;
     const diags: [number, number, number][] = [
       [rx + ux, ry + uy, rz + uz],
       [rx - ux, ry - uy, rz - uz],
@@ -428,8 +438,8 @@ export class GeometryBuilder {
     }
 
     // Forward/back fillers to add depth
-    const fwdOffset = size * 0.28;
-    const fwdScale = size * 0.9;
+    const fwdOffset = size * 0.45;
+    const fwdScale = size * 1.4;
     for (let s of [-1, 1]) {
       const px = cx + dx * fwdOffset * s + jitter(size * 0.04, 200 + (s > 0 ? 1 : 0));
       const py = cy + dy * fwdOffset * s + jitter(size * 0.04, 210 + (s > 0 ? 1 : 0));

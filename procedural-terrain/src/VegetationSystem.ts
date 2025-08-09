@@ -51,14 +51,13 @@ export class VegetationSystem {
     this.treeSpecies = [
       {
         name: 'oak',
-        baseColorRGB: [0.4, 0.2, 0.1],
+        baseColorRGB: [0.4, 0.2, 0.1], // Brown trunk
         leafColorRGB: [0.2, 0.6, 0.1],
-        sizeRange: [3, 5],
-        minSpacingR: 8,
-        leafSize: 1.2,
+        sizeRange: [4, 7], // Bigger oaks
+        minSpacingR: 10,
+        leafSize: 1.4,
         useLeaves: true,
         suitability: (T: number, M: number, h: number) => {
-          // Likes moderate temp, high moisture, low-med altitude
           const tempSuit = 1 - Math.abs(T - 0.6) * 2;
           const moistSuit = M;
           const altSuit = h < 50 ? 1 : Math.max(0, 1 - (h - 50) / 100);
@@ -67,14 +66,13 @@ export class VegetationSystem {
       },
       {
         name: 'pine',
-        baseColorRGB: [0.3, 0.15, 0.05],
+        baseColorRGB: [0.3, 0.15, 0.05], // Dark brown trunk
         leafColorRGB: [0.1, 0.4, 0.1],
-        sizeRange: [4, 6],
-        minSpacingR: 6,
-        leafSize: 0.6,
+        sizeRange: [6, 9], // Tall pines
+        minSpacingR: 8,
+        leafSize: 0.7,
         useLeaves: true,
         suitability: (T: number, M: number, h: number) => {
-          // Likes cool temp, medium moisture, any altitude
           const tempSuit = Math.max(0, 1 - (T - 0.3) * 2);
           const moistSuit = 0.5 + 0.5 * M;
           return tempSuit * moistSuit;
@@ -82,29 +80,27 @@ export class VegetationSystem {
       },
       {
         name: 'birch',
-        baseColorRGB: [0.8, 0.8, 0.7],
+        baseColorRGB: [0.9, 0.9, 0.8], // White/silver trunk
         leafColorRGB: [0.3, 0.7, 0.2],
-        sizeRange: [3, 4],
-        minSpacingR: 5,
-        leafSize: 0.8,
+        sizeRange: [3, 5],
+        minSpacingR: 6,
+        leafSize: 0.9,
         useLeaves: true,
         suitability: (T: number, M: number, h: number) => {
-          // Likes cool-moderate temp, high moisture
           const tempSuit = 1 - Math.abs(T - 0.4) * 1.5;
-          const moistSuit = M * M; // strongly prefers wet
+          const moistSuit = M * M;
           return Math.max(0, tempSuit * moistSuit);
         }
       },
       {
         name: 'cactus',
-        baseColorRGB: [0.2, 0.6, 0.2],
+        baseColorRGB: [0.2, 0.5, 0.2], // Green trunk (cactus body)
         leafColorRGB: [0.4, 0.6, 0.2],
-        sizeRange: [2, 3],
+        sizeRange: [2, 4],
         minSpacingR: 12,
         leafSize: 0.3,
         useLeaves: false,
         suitability: (T: number, M: number, h: number) => {
-          // Likes hot, dry conditions
           const tempSuit = Math.max(0, (T - 0.7) * 3);
           const moistSuit = Math.max(0, 1 - M * 2);
           return tempSuit * moistSuit;
@@ -112,14 +108,13 @@ export class VegetationSystem {
       },
       {
         name: 'spruce',
-        baseColorRGB: [0.25, 0.12, 0.04],
+        baseColorRGB: [0.25, 0.12, 0.04], // Dark brown trunk
         leafColorRGB: [0.05, 0.3, 0.05],
-        sizeRange: [4, 5],
-        minSpacingR: 7,
-        leafSize: 0.5,
+        sizeRange: [5, 8], // Tall spruces
+        minSpacingR: 9,
+        leafSize: 0.6,
         useLeaves: true,
         suitability: (T: number, M: number, h: number) => {
-          // Likes cold, medium-high moisture, high altitude
           const tempSuit = Math.max(0, 1 - T * 2);
           const moistSuit = 0.3 + 0.7 * M;
           const altSuit = h > 30 ? 1 : h / 30;
@@ -128,18 +123,47 @@ export class VegetationSystem {
       },
       {
         name: 'palm',
-        baseColorRGB: [0.4, 0.3, 0.2],
+        baseColorRGB: [0.5, 0.35, 0.2], // Tan trunk
         leafColorRGB: [0.2, 0.8, 0.1],
-        sizeRange: [4, 5],
+        sizeRange: [4, 6],
         minSpacingR: 10,
-        leafSize: 1.5,
+        leafSize: 1.8,
         useLeaves: true,
         suitability: (T: number, M: number, h: number) => {
-          // Likes hot, very wet, low altitude
           const tempSuit = Math.max(0, (T - 0.6) * 2);
-          const moistSuit = M * M * M; // strongly prefers very wet
+          const moistSuit = M * M * M;
           const altSuit = h < 20 ? 1 : Math.max(0, 1 - (h - 20) / 30);
           return tempSuit * moistSuit * altSuit;
+        }
+      },
+      {
+        name: 'redwood',
+        baseColorRGB: [0.6, 0.3, 0.2], // Reddish trunk
+        leafColorRGB: [0.1, 0.5, 0.1],
+        sizeRange: [8, 12], // MASSIVE trees
+        minSpacingR: 15,
+        leafSize: 2.0,
+        useLeaves: true,
+        suitability: (T: number, M: number, h: number) => {
+          // Likes moderate temp, very high moisture, coastal areas
+          const tempSuit = 1 - Math.abs(T - 0.5) * 1.5;
+          const moistSuit = M * M * M; // needs very wet conditions
+          return Math.max(0, tempSuit * moistSuit);
+        }
+      },
+      {
+        name: 'willow',
+        baseColorRGB: [0.45, 0.35, 0.25], // Gray-brown trunk
+        leafColorRGB: [0.3, 0.8, 0.2], // Bright green drooping leaves
+        sizeRange: [4, 6],
+        minSpacingR: 12,
+        leafSize: 1.6,
+        useLeaves: true,
+        suitability: (T: number, M: number, h: number) => {
+          // Likes moderate temp, very wet (near water)
+          const tempSuit = 1 - Math.abs(T - 0.6) * 1.2;
+          const moistSuit = M * M * M; // loves water
+          return Math.max(0, tempSuit * moistSuit);
         }
       }
     ];
@@ -158,9 +182,10 @@ export class VegetationSystem {
       {
         biomeName: 'plains',
         speciesWeights: {
-          'oak': 0.6,
-          'birch': 0.3,
-          'pine': 0.1
+          'oak': 0.5,
+          'birch': 0.2,
+          'pine': 0.1,
+          'willow': 0.2 // Willows near rivers in plains
         },
         densityMax: 0.15,
         riverBoost: 0.8,
@@ -170,10 +195,12 @@ export class VegetationSystem {
       {
         biomeName: 'forest',
         speciesWeights: {
-          'oak': 0.4,
-          'birch': 0.3,
+          'oak': 0.3,
+          'birch': 0.2,
           'pine': 0.2,
-          'palm': 0.1
+          'redwood': 0.15, // Massive trees in forests
+          'willow': 0.1,
+          'palm': 0.05
         },
         densityMax: 0.8,
         riverBoost: 1.0,

@@ -34,11 +34,9 @@ export default function App() {
   const [cameraPosition, setCameraPosition] = useState({ x: 0, y: 0, z: 0 });
   const [biomeParams, setBiomeParams] = useState<any>(null);
   const [isLocked, setIsLocked] = useState<boolean>(false);
-  const [showOverlay, setShowOverlay] = useState<boolean>(true);
   const [headingDeg, setHeadingDeg] = useState<number>(0);
   const [speciesFound, setSpeciesFound] = useState<number>(0);
   const [journalEntries, setJournalEntries] = useState<string[]>([]);
-  const [isDevOpen, setIsDevOpen] = useState<boolean>(true);
   const chunkManagerRef = useRef<ChunkManager | null>(null);
   const lastBiomeUpdate = useRef<number>(0);
 
@@ -83,7 +81,7 @@ export default function App() {
     const hemiLight = new THREE.HemisphereLight(0xbfe3ff, 0x8f6a40, 0.7);
     scene.add(hemiLight);
 
-    // Controls
+    // Controls (Pointer lock)
     const controls = new PointerLockControls(camera, renderer.domElement);
     scene.add(controls.getObject());
     controlsRef.current = controls;
@@ -123,7 +121,6 @@ export default function App() {
     const onClick = () => {
       if (!controls.isLocked) {
         controls.lock();
-        setShowOverlay(false);
       }
     };
     renderer.domElement.addEventListener('click', onClick);
@@ -188,13 +185,6 @@ export default function App() {
         // Get detailed biome parameters for debug display
         const detailedParams = chunkManager.getBiomeParamsAt(pos.x, pos.z);
         setBiomeParams(detailedParams);
-
-        // Heading calculation (0° = N, 90° = E)
-        const forward = new THREE.Vector3();
-        camera.getWorldDirection(forward);
-        const radians = Math.atan2(forward.x, forward.z);
-        const degrees = (THREE.MathUtils.radToDeg(radians) + 360) % 360;
-        setHeadingDeg(Math.round(degrees));
       }
 
       renderer.render(scene, camera);
@@ -205,12 +195,12 @@ export default function App() {
 
     // Cleanup
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('resize', onResize);
       renderer.domElement.removeEventListener('click', onClick);
       controls.removeEventListener('lock', onLock);
       controls.removeEventListener('unlock', onUnlock);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
       
       if (chunkManagerRef.current) {
         chunkManagerRef.current.dispose();
@@ -237,9 +227,18 @@ export default function App() {
 
   const directionText = useMemo(() => {
     const dirs = ['N','NE','E','SE','S','SW','W','NW'];
-    const idx = Math.round(headingDeg / 45) % 8;
-    return `${dirs[idx]} ${headingDeg}°`;
-  }, [headingDeg]);
+    const forward = new THREE.Vector3();
+    const cam = controlsRef.current?.getObject?.();
+    if (cam) {
+      const dir = new THREE.Vector3();
+      (cam as THREE.Object3D).getWorldDirection(dir);
+      const radians = Math.atan2(dir.x, dir.z);
+      const degrees = (THREE.MathUtils.radToDeg(radians) + 360) % 360;
+      const idx = Math.round(degrees / 45) % 8;
+      return `${dirs[idx]} ${Math.round(degrees)}°`;
+    }
+    return 'N 0°';
+  }, [cameraPosition.x, cameraPosition.z]);
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
@@ -291,11 +290,9 @@ export default function App() {
           </div>
         </div>
 
-        {isLocked && <div className="reticle" />}
-
         <div className="hint">
           <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move • <kbd>Space</kbd>/<kbd>Shift</kbd> up/down • <kbd>Q</kbd> sprint</div>
-          <div>Press <kbd>E</kbd> to scan a nearby creature</div>
+          <div>Click to lock mouse • Explore to find creatures</div>
         </div>
 
         <div className="journal">
@@ -311,175 +308,10 @@ export default function App() {
           </div>
         </div>
 
-        {showOverlay && (
-          <div className="overlay">
-            <div className="box">
-              <h2>Welcome, Explorer!</h2>
-              <p>Venture across vibrant biomes and build your playful bestiary. Click Start to enter the world.</p>
-              <button
-                className="cta"
-                onClick={() => {
-                  setShowOverlay(false);
-                  controlsRef.current?.lock();
-                }}
-              >Start Exploring</button>
-            </div>
-          </div>
-        )}
+        {/* Reticle when locked */}
+        {isLocked && <div className="reticle" />}
 
-        {/* Dev controls */}
-        <div className="dev-panel">
-          <button className="dev-toggle" onClick={() => setIsDevOpen((v) => !v)}>
-            <span className="dot" /> {isDevOpen ? 'Hide' : 'Show'} Dev Panel
-          </button>
-          {isDevOpen && (
-            <div className="content">
-              {/* Current biome and position info */}
-              <div style={{ 
-                marginBottom: '12px', 
-                padding: '8px', 
-                background: 'rgba(255, 255, 255, 0.05)', 
-                borderRadius: '8px',
-                fontSize: '11px'
-              }}>
-                <div style={{ color: '#87CEEB', fontWeight: 700 }}>
-                  Biome: {currentBiome}
-                </div>
-                <div style={{ color: '#ccc', marginTop: 4 }}>
-                  Pos: {cameraPosition.x}, {cameraPosition.y}, {cameraPosition.z}
-                </div>
-              </div>
-
-              {/* Detailed biome parameters */}
-              {biomeParams && (
-                <div style={{ 
-                  marginBottom: '12px', 
-                  padding: '8px', 
-                  background: 'rgba(0, 100, 200, 0.08)', 
-                  borderRadius: '8px',
-                  fontSize: '10px',
-                  fontFamily: 'monospace'
-                }}>
-                  <div style={{ color: '#87CEEB', fontWeight: 700, marginBottom: 6 }}>
-                    Biome Parameters
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 10 }}>
-                    <div>C: <span style={{ color: '#FFB347' }}>{biomeParams.continentalness.toFixed(3)}</span></div>
-                    <div>E: <span style={{ color: '#FFB347' }}>{biomeParams.erosion.toFixed(3)}</span></div>
-                    <div>T: <span style={{ color: '#FF6B6B' }}>{biomeParams.temperature.toFixed(3)}</span></div>
-                    <div>M: <span style={{ color: '#4ECDC4' }}>{biomeParams.moisture.toFixed(3)}</span></div>
-                    <div>Mmask: <span style={{ color: '#95E1D3' }}>{biomeParams.mountainMask.toFixed(3)}</span></div>
-                    <div>R: <span style={{ color: '#DDA0DD' }}>{biomeParams.relief.toFixed(3)}</span></div>
-                    <div>D: <span style={{ color: '#F0E68C' }}>{biomeParams.detail.toFixed(3)}</span></div>
-                    <div>Base: <span style={{ color: '#98FB98' }}>{biomeParams.baseHeight.toFixed(1)}</span></div>
-                  </div>
-                  <div style={{ marginTop: 6, fontSize: 10 }}>
-                    <div>Warped: <span style={{ color: '#FFA07A' }}>({biomeParams.warpedX.toFixed(0)}, {biomeParams.warpedY.toFixed(0)})</span></div>
-                    <div>Final Height: <span style={{ color: '#90EE90' }}>{biomeParams.finalHeight.toFixed(2)}</span></div>
-                  </div>
-                </div>
-              )}
-
-              <div style={{ marginBottom: 10 }}>
-                <label>Seed: </label>
-                <input
-                  type="text"
-                  value={params.seed}
-                  onChange={(e) => setParams({ ...params, seed: e.target.value })}
-                  style={{ width: 150, marginLeft: 10 }}
-                />
-              </div>
-
-              <div style={{ marginBottom: 10 }}>
-                <label>Base Frequency: </label>
-                <input
-                  type="range"
-                  min="0.005"
-                  max="0.1"
-                  step="0.005"
-                  value={params.baseFrequency}
-                  onChange={(e) => setParams({ ...params, baseFrequency: parseFloat(e.target.value) })}
-                  style={{ width: 100, marginLeft: 10 }}
-                />
-                <span style={{ marginLeft: 10 }}>{params.baseFrequency.toFixed(3)}</span>
-              </div>
-
-              <div style={{ marginBottom: 10 }}>
-                <label>Base Amplitude: </label>
-                <input
-                  type="range"
-                  min="5"
-                  max="50"
-                  step="1"
-                  value={params.baseAmplitude}
-                  onChange={(e) => setParams({ ...params, baseAmplitude: parseInt(e.target.value) })}
-                  style={{ width: 100, marginLeft: 10 }}
-                />
-                <span style={{ marginLeft: 10 }}>{params.baseAmplitude}</span>
-              </div>
-
-              <div style={{ marginBottom: 10 }}>
-                <label>Detail Frequency: </label>
-                <input
-                  type="range"
-                  min="0.05"
-                  max="0.3"
-                  step="0.01"
-                  value={params.detailFrequency}
-                  onChange={(e) => setParams({ ...params, detailFrequency: parseFloat(e.target.value) })}
-                  style={{ width: 100, marginLeft: 10 }}
-                />
-                <span style={{ marginLeft: 10 }}>{params.detailFrequency.toFixed(2)}</span>
-              </div>
-
-              <div style={{ marginBottom: 12 }}>
-                <label>Detail Amplitude: </label>
-                <input
-                  type="range"
-                  min="1"
-                  max="10"
-                  step="0.5"
-                  value={params.detailAmplitude}
-                  onChange={(e) => setParams({ ...params, detailAmplitude: parseFloat(e.target.value) })}
-                  style={{ width: 100, marginLeft: 10 }}
-                />
-                <span style={{ marginLeft: 10 }}>{params.detailAmplitude}</span>
-              </div>
-
-              <div style={{ marginBottom: 10 }}>
-                <label>Wave Strength: </label>
-                <input
-                  type="range"
-                  min="0.0"
-                  max="0.3"
-                  step="0.02"
-                  value={waveStrength}
-                  onChange={(e) => setWaveStrength(parseFloat(e.target.value))}
-                  style={{ width: 100, marginLeft: 10 }}
-                />
-                <span style={{ marginLeft: 10 }}>
-                  {waveStrength.toFixed(2)}
-                </span>
-              </div>
-
-              <div style={{ marginBottom: 0 }}>
-                <label>Water Opacity: </label>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="1.0"
-                  step="0.05"
-                  value={waterOpacity}
-                  onChange={(e) => setWaterOpacity(parseFloat(e.target.value))}
-                  style={{ width: 100, marginLeft: 10 }}
-                />
-                <span style={{ marginLeft: 10 }}>
-                  {waterOpacity.toFixed(2)}
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
+        {/* Dev controls removed for now */}
       </div>
     </div>
   );
