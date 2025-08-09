@@ -201,9 +201,9 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
       let scatteredPeakHeight = 0;
       if (scatteredPeakVal > peakThreshold) {
         // Strong exponential falloff to create sharp, dramatic peaks
-        const peakStrength = Math.pow((scatteredPeakVal - peakThreshold) / (1.0 - peakThreshold), 3.0);
-        // Extremely tall peaks with massive height variation
-        const maxPeakHeight = baseAmplitude * (12.0 + 8.0 * Math.abs(peakHeightVar));
+        const peakStrength = Math.pow((scatteredPeakVal - peakThreshold) / (1.0 - peakThreshold), 2.0);
+        // Very tall peaks with height variation
+        const maxPeakHeight = baseAmplitude * (8.0 + 4.0 * Math.abs(peakHeightVar));
         scatteredPeakHeight = maxPeakHeight * peakStrength;
       }
 
