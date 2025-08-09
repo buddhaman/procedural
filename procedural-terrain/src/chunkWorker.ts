@@ -207,6 +207,7 @@ function addVegetation(
       const baseTreeHeight = 4; // Fixed base height for all trees
       let treeColor: [number, number, number] = [0.4, 0.2, 0.1];
       let leafColor: [number, number, number] = [0.2, 0.5, 0.1];
+      let leafSize = 0.45; // default leaf size (world units)
       
       switch (biomeName) {
         case 'forest':
@@ -214,30 +215,35 @@ function addVegetation(
           bushDensity = 0.2;
           treeColor = [0.3, 0.15, 0.05];
           leafColor = [0.1, 0.4, 0.1];
+          leafSize = 0.55;
           break;
           
         case 'plains':
           treeDensity = 0.05;
           bushDensity = 0.15;
           leafColor = [0.2, 0.6, 0.1];
+          leafSize = 0.45;
           break;
           
         case 'desert':
           treeDensity = 0.01;
           bushDensity = 0.05;
           leafColor = [0.4, 0.3, 0.1]; // Cactus-like
+          leafSize = 0.35;
           break;
           
         case 'mountains':
           treeDensity = 0.1;
           bushDensity = 0.05;
           leafColor = [0.2, 0.4, 0.3]; // Hardy mountain trees
+          leafSize = 0.4;
           break;
           
         case 'tundra':
           treeDensity = 0.02;
           bushDensity = 0.03;
           leafColor = [0.3, 0.4, 0.3]; // Sparse, hardy vegetation
+          leafSize = 0.35;
           break;
           
         default: // ocean
@@ -248,14 +254,16 @@ function addVegetation(
       if (vegRandom < treeDensity) {
         const treeSeed = Math.floor((worldX * 1000 + worldZ * 1000) % 10000);
         
-        builder.addTree(
+        builder.addTreeWithLeaves(
           x * worldScale,
           height,
           z * worldScale,
           baseTreeHeight, // Same height for all trees!
           (treeSeed % 1000) / 1000 * Math.PI * 2,
           4, // Fractal depth
-          treeSeed
+          treeSeed,
+          leafSize,
+          leafColor
         );
       }
       // Place bushes where no trees
