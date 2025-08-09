@@ -2,6 +2,9 @@ export class GeometryBuilder {
   private positions: number[] = [];
   private normals: number[] = [];
   private colors: number[] = [];
+  // Leaf budgeting per tree
+  private currentLeafCount: number = 0;
+  private maxLeavesThisTree: number = Number.POSITIVE_INFINITY;
 
   constructor() {}
 
@@ -193,6 +196,9 @@ export class GeometryBuilder {
     leafColor: [number, number, number]
   ) {
     const barkColor = this.chooseBarkColor(seed);
+    // Reset leaf budget for this tree
+    this.currentLeafCount = 0;
+    this.maxLeavesThisTree = 10; // hard cap ~10 leaves per tree
     this.generateTreeBranch(
       [x, y, z],
       [x, y + height, z],
@@ -242,8 +248,9 @@ export class GeometryBuilder {
     let lastDirY = 1;
     let lastDirZ = 0;
 
-    const minBranchWidth = 0.06;
-    const baseWidth = Math.max(minBranchWidth, length * 0.18 * (depth / Math.max(1, initialDepth)));
+    // Make trunks/branches much thicker overall
+    const minBranchWidth = 0.12;
+    const baseWidth = Math.max(minBranchWidth, length * 0.35 * (depth / Math.max(1, initialDepth)));
 
     for (let i = 0; i < segmentCount; i++) {
       const segSeed = seed * 101 + depth * 131 + i * 197;
@@ -263,12 +270,13 @@ export class GeometryBuilder {
       // Pull horizontal drift slightly back toward the ideal straight path to avoid one-sided bias
       const idealX = fx + baseStepX * (i + 1);
       const idealZ = fz + baseStepZ * (i + 1);
-      const biasDamp = 0.15 + 0.5 * variationDepthFactor; // less damping near tips for more spread
+      const biasDamp = 0.05 + 0.4 * variationDepthFactor; // even less damping near tips for maximum spread
       nx = idealX + (nx - idealX) * biasDamp;
       nz = idealZ + (nz - idealZ) * biasDamp;
 
       // Ensure continuous upward growth
-      const minUpStep = stepLength * 0.6;
+      const depthRatioLocal = depth / Math.max(1, initialDepth);
+      const minUpStep = stepLength * (0.2 + 0.4 * depthRatioLocal); // allow near-horizontal at tips
       if (ny <= cy) ny = cy + minUpStep;
 
       // Cap local tilt to keep segment within a vertical cone
@@ -278,9 +286,9 @@ export class GeometryBuilder {
       const horizMag = Math.sqrt(hx * hx + hz * hz) || 0.00001;
       // Local cone cap based on depth (match child branch cap below)
       const maxAngleNearTrunk = 0.55; // ~31.5°
-      const maxAngleNearLeaves = 0.8;  // ~45.8° (much more spread near top)
-      const depthRatio = depth / Math.max(1, initialDepth);
-      const localAngleCap = maxAngleNearLeaves + (maxAngleNearTrunk - maxAngleNearLeaves) * depthRatio;
+      const maxAngleNearLeaves = 1.2;  // ~68.8° (much more spread near top)
+      const depthRatioLocal2 = depth / Math.max(1, initialDepth);
+      const localAngleCap = maxAngleNearLeaves + (maxAngleNearTrunk - maxAngleNearLeaves) * depthRatioLocal2;
       const allowedHoriz = Math.tan(localAngleCap) * Math.max(hy, 0.00001);
       if (horizMag > allowedHoriz) {
         const scale = allowedHoriz / horizMag;
@@ -306,12 +314,26 @@ export class GeometryBuilder {
       cz = nz;
     }
 
-    // Place a leaf cluster at the end of terminal branches (probabilistic to reduce count)
-    if (depth === 1 && leafSize !== undefined && leafColor !== undefined) {
+    // Place a leaf cluster at the end of terminal branches (probabilistic + budget cap)
+    if (
+      depth === 1 &&
+      leafSize !== undefined &&
+      leafColor !== undefined &&
+      this.currentLeafCount < this.maxLeavesThisTree
+    ) {
       const leafSeed = seed * 917 + Math.floor(cx * 17 + cy * 23 + cz * 31);
-      const presenceChance = 0.6; // 60% chance to create a leaf on a twig
+      const presenceChance = 0.5; // 50% chance to attempt a leaf on a twig
       if (this.seededRandom(leafSeed + 999) < presenceChance) {
-        this.addLeafCluster([cx, cy, cz], [lastDirX, lastDirY, lastDirZ], leafSize, leafColor, leafSeed);
+        const remaining = this.maxLeavesThisTree - this.currentLeafCount;
+        const added = this.addLeafCluster(
+          [cx, cy, cz],
+          [lastDirX, lastDirY, lastDirZ],
+          leafSize,
+          leafColor,
+          leafSeed,
+          remaining
+        );
+        this.currentLeafCount += added;
       }
     }
 
@@ -329,11 +351,11 @@ export class GeometryBuilder {
 
         // Branch parameters
         const depthRatio = depth / Math.max(1, initialDepth);
-        const maxAngleNearTrunk = 0.65; // ~37.2°
-        const maxAngleNearLeaves = 0.95;  // ~54.4° (much more spread near top)
+        const maxAngleNearTrunk = 0.75; // ~43°
+        const maxAngleNearLeaves = 1.3;  // ~74.5° (extremely spread near top)
         const maxOffVertical = maxAngleNearLeaves + (maxAngleNearTrunk - maxAngleNearLeaves) * depthRatio;
 
-        const angleJitter = (rnd1 - 0.5) * 2 * 0.55; // significantly more spread
+        const angleJitter = (rnd1 - 0.5) * 2 * 0.75; // very wide spread
         let branchAngle = angle + angleJitter;
         if (branchAngle > maxOffVertical) branchAngle = maxOffVertical;
         if (branchAngle < -maxOffVertical) branchAngle = -maxOffVertical;
@@ -341,7 +363,7 @@ export class GeometryBuilder {
         const branchLength = length * (0.6 + rnd2 * 0.3);
         // Distribute yaw evenly among siblings with small jitter to avoid directional bias
         const baseYaw = (2 * Math.PI * i) / numBranches;
-        const yawJitter = (rnd3 - 0.5) * Math.PI * 0.2; // keep yaw jitter moderate to avoid clumping
+        const yawJitter = (rnd3 - 0.5) * Math.PI * 0.15; // keep yaw controlled, rely on angle spread
         const branchTilt = baseYaw + yawJitter;
 
         // Calculate branch end position
@@ -374,8 +396,9 @@ export class GeometryBuilder {
     axisDir: [number, number, number],
     size: number,
     color: [number, number, number],
-    seed: number
-  ) {
+    seed: number,
+    remainingLeaves: number
+  ): number {
     const [cx, cy, cz] = center;
     let [dx, dy, dz] = axisDir;
     const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
@@ -399,9 +422,14 @@ export class GeometryBuilder {
     const rand = (i: number) => this.seededRandom(seed + i) - 0.5;
     const jitter = (scale: number, i: number) => (rand(i) * 2) * scale;
 
-    // Minimal leaf cluster - central plus two optional offsets
-    // Central large leaf
-    this.addOrientedBox([cx, cy, cz], [dx, dy, dz], size * 2.2, color);
+    // Minimal leaf cluster - central plus two optional offsets, constrained by budget
+    let addedCount = 0;
+    // Central large leaf (consume 1 if available)
+    if (remainingLeaves > 0) {
+      this.addOrientedBox([cx, cy, cz], [dx, dy, dz], size * 2.2, color);
+      addedCount += 1;
+      remainingLeaves -= 1;
+    }
 
     // Only 2 optional offset leaves to reduce total count
     const options = [[rx, ry, rz], [ux, uy, uz]] as [number, number, number][];
@@ -412,14 +440,17 @@ export class GeometryBuilder {
       const pz = cz + oz * off + dz * jitter(size * 0.02, jbase + 3);
       this.addOrientedBox([px, py, pz], [dx, dy, dz], scale, color);
     };
-    for (let i = 0; i < options.length; i++) {
-      // 50% chance for each optional offset leaf
-      if (this.seededRandom(seed + 500 + i) < 0.5) continue;
+    for (let i = 0; i < options.length && remainingLeaves > 0; i++) {
+      // 40% chance for each optional offset leaf
+      if (this.seededRandom(seed + 500 + i) < 0.6) continue;
       const dir = options[i];
       const scale = i === 0 ? size * 1.8 : size * 1.7; // wide vs tall
       const off = i === 0 ? size * 1.2 : size * 1.1;
       place(dir as [number, number, number], scale, off, 400 + i * 20);
+      addedCount += 1;
+      remainingLeaves -= 1;
     }
+    return addedCount;
   }
 
   // Add an oriented stretched cube (box) centered at position, aligned to axisDir

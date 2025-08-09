@@ -53,7 +53,7 @@ export class VegetationSystem {
         name: 'oak',
         baseColorRGB: [0.4, 0.2, 0.1], // Brown trunk
         leafColorRGB: [0.2, 0.6, 0.1],
-        sizeRange: [3, 5], // Back to 3-5 units
+        sizeRange: [4.5, 7], // taller
         minSpacingR: 10,
         leafSize: 1.4,
         useLeaves: true,
@@ -68,7 +68,7 @@ export class VegetationSystem {
         name: 'pine',
         baseColorRGB: [0.3, 0.15, 0.05], // Dark brown trunk
         leafColorRGB: [0.1, 0.4, 0.1],
-        sizeRange: [4, 5], // Back to reasonable units
+        sizeRange: [5, 7], // taller
         minSpacingR: 8,
         leafSize: 0.7,
         useLeaves: true,
@@ -82,7 +82,7 @@ export class VegetationSystem {
         name: 'birch',
         baseColorRGB: [0.9, 0.9, 0.8], // White/silver trunk
         leafColorRGB: [0.3, 0.7, 0.2],
-        sizeRange: [3, 5],
+        sizeRange: [4, 6],
         minSpacingR: 6,
         leafSize: 0.9,
         useLeaves: true,
@@ -110,7 +110,7 @@ export class VegetationSystem {
         name: 'spruce',
         baseColorRGB: [0.25, 0.12, 0.04], // Dark brown trunk
         leafColorRGB: [0.05, 0.3, 0.05],
-        sizeRange: [4, 5], // Back to reasonable units
+        sizeRange: [5.5, 7], // taller
         minSpacingR: 9,
         leafSize: 0.6,
         useLeaves: true,
@@ -125,7 +125,7 @@ export class VegetationSystem {
         name: 'palm',
         baseColorRGB: [0.5, 0.35, 0.2], // Tan trunk
         leafColorRGB: [0.2, 0.8, 0.1],
-        sizeRange: [4, 6],
+        sizeRange: [5, 7.5],
         minSpacingR: 10,
         leafSize: 1.8,
         useLeaves: true,
@@ -140,7 +140,7 @@ export class VegetationSystem {
         name: 'redwood',
         baseColorRGB: [0.6, 0.3, 0.2], // Reddish trunk
         leafColorRGB: [0.1, 0.5, 0.1],
-        sizeRange: [4, 5], // Same units but will feel massive due to scale
+        sizeRange: [6, 8], // taller
         minSpacingR: 15,
         leafSize: 2.0,
         useLeaves: true,
@@ -155,7 +155,7 @@ export class VegetationSystem {
         name: 'willow',
         baseColorRGB: [0.45, 0.35, 0.25], // Gray-brown trunk
         leafColorRGB: [0.3, 0.8, 0.2], // Bright green drooping leaves
-        sizeRange: [4, 6],
+        sizeRange: [5, 7.5],
         minSpacingR: 12,
         leafSize: 1.6,
         useLeaves: true,
@@ -328,8 +328,8 @@ export class VegetationSystem {
       densityMax += profile.densityMax * weight;
     }
 
-    // Boost density to make sure we see trees
-    const boostedDensity = Math.min(1, densityMax * 2);
+    // Reduce density overall (sparser forests)
+    const boostedDensity = Math.min(1, densityMax * 1.2);
     
     // Add some variation but keep it reasonable
     const variation = 0.8 + 0.4 * Math.sin(x * 0.001) * Math.cos(y * 0.001);
@@ -346,8 +346,8 @@ export class VegetationSystem {
     getBiomeParams: (x: number, y: number) => { params: BiomeParams, weights: number[] }
   ): PlacedTree[] {
     const trees: PlacedTree[] = [];
-    const cellSize = 16; // Grid cell size for Poisson sampling
-    const K = 2; // Candidates per cell
+    const cellSize = 22; // larger cells -> fewer opportunities
+    const K = 1; // fewer candidates per cell
 
     const startX = chunkX * chunkSize * worldScale;
     const startZ = chunkZ * chunkSize * worldScale;
