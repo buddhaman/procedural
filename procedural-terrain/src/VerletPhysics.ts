@@ -225,15 +225,31 @@ export function buildCreature(seed: number, params: any): Agent {
     }
   }
   
-  // Add mirrored legs with proper spacing
+  // Add mirrored legs with proper spacing based on limbPairs parameter
   const legs: LegCtrl[] = [];
+  const limbPairs = params.limbPairs || 2; // Default to 2 pairs (4 legs) if not specified
   
-  // Simple leg placement - always add legs at segments based on spine length
+  // Calculate leg segments based on number of leg pairs
   const legSegments: number[] = [];
-  if (N >= 2) legSegments.push(Math.floor(N * 0.3)); // Front legs
-  if (N >= 3) legSegments.push(Math.floor(N * 0.7)); // Back legs
   
-  for (const seg of legSegments) {
+  if (limbPairs === 1) {
+    // Biped: single pair in the middle
+    if (N >= 2) legSegments.push(Math.floor(N * 0.5));
+  } else if (limbPairs === 2) {
+    // Quadruped: front and back legs
+    if (N >= 2) legSegments.push(Math.floor(N * 0.3)); // Front legs
+    if (N >= 3) legSegments.push(Math.floor(N * 0.7)); // Back legs
+  } else if (limbPairs === 3) {
+    // Hexapod: front, middle, and back legs
+    if (N >= 3) legSegments.push(Math.floor(N * 0.2)); // Front legs
+    if (N >= 3) legSegments.push(Math.floor(N * 0.5)); // Middle legs
+    if (N >= 3) legSegments.push(Math.floor(N * 0.8)); // Back legs
+  }
+  
+  // Ensure we don't exceed spine length
+  const validSegments = legSegments.filter(seg => seg < N);
+  
+  for (const seg of validSegments) {
     const base = s.joints[spine[seg]].pIdx;
     
     for (const dir of [-1, 1]) {
@@ -267,10 +283,11 @@ export function buildCreature(seed: number, params: any): Agent {
     }
   }
   
-  // Add head
+  // Add head using neckLength parameter for forward extension
+  const neckLength = params.neckLength || params.headX || 1.0; // Use neckLength if available
   const head = addJoint(s, add(s.particles[s.joints[spine[N - 1]].pIdx].pos, {
-    x: params.headX,
-    y: params.headZ,
+    x: neckLength, // Use neckLength for forward extension
+    y: params.headZ || 0.4, // Height above neck
     z: 0
   }), params.headR, params.color);
   

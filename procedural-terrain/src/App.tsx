@@ -8,9 +8,13 @@ import './styles.css';
 
 // Movement settings
 const CAMERA_START_Y = 50;
-const MOVE_SPEED_METERS_PER_SEC = 150;
+const DEV_MOVE_SPEED_METERS_PER_SEC = 150;
+const PLAY_MOVE_SPEED_METERS_PER_SEC = 37.5; // 1/4 of dev speed
 const SPRINT_MULTIPLIER = 2.0;
 const EYE_HEIGHT = 2;
+const GRAVITY_METERS_PER_SEC2 = -60;
+const JUMP_VELOCITY = 22;
+const MAX_FALL_SPEED = -120;
 
 // Terrain generation defaults
 const DEFAULTS = {
@@ -51,6 +55,15 @@ export default function App() {
   const fpsFramesSinceUpdate = useRef<number>(0);
   const fpsAccumulatedDelta = useRef<number>(0);
   const fpsLastReportTime = useRef<number>(0);
+  // Mode and simple character physics
+  const [mode, setMode] = useState<'dev' | 'play'>('play');
+  const modeRef = useRef<'dev' | 'play'>(mode);
+  const verticalVelocityRef = useRef<number>(0);
+  const isGroundedRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   useEffect(() => {
     const container = mountRef.current!;
@@ -131,6 +144,11 @@ export default function App() {
     const movementKeys = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyQ']);
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'F1') {
+        e.preventDefault();
+        setMode((prev) => (prev === 'dev' ? 'play' : 'dev'));
+        return;
+      }
       keyState[e.code] = true;
       if (movementKeys.has(e.code)) e.preventDefault();
     };
@@ -171,28 +189,55 @@ export default function App() {
 
       // Movement when controls are locked
       if (controls.isLocked) {
+        const isDev = modeRef.current === 'dev';
         const isSprinting = !!keyState['KeyQ'];
-        const moveDistance = MOVE_SPEED_METERS_PER_SEC * (isSprinting ? SPRINT_MULTIPLIER : 1) * delta;
+        const baseSpeed = isDev ? DEV_MOVE_SPEED_METERS_PER_SEC : PLAY_MOVE_SPEED_METERS_PER_SEC;
+        const moveDistance = baseSpeed * (isSprinting ? SPRINT_MULTIPLIER : 1) * delta;
 
-        // Get movement directions
+        // Get horizontal movement directions (ignore camera pitch for movement)
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(cameraObject.quaternion);
+        forward.y = 0;
+        forward.normalize();
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cameraObject.quaternion);
+        right.y = 0;
+        right.normalize();
 
-        // Apply movement
+        // Apply horizontal movement
         if (keyState['KeyW']) cameraObject.position.addScaledVector(forward, moveDistance);
         if (keyState['KeyS']) cameraObject.position.addScaledVector(forward, -moveDistance);
         if (keyState['KeyA']) cameraObject.position.addScaledVector(right, -moveDistance);
         if (keyState['KeyD']) cameraObject.position.addScaledVector(right, moveDistance);
 
-        // Vertical movement (creative fly)
-        if (keyState['Space']) cameraObject.position.y += moveDistance;
-        if (keyState['ShiftLeft'] || keyState['ShiftRight']) cameraObject.position.y -= moveDistance;
+        if (isDev) {
+          // Creative flying
+          if (keyState['Space']) cameraObject.position.y += moveDistance;
+          if (keyState['ShiftLeft'] || keyState['ShiftRight']) cameraObject.position.y -= moveDistance;
+          verticalVelocityRef.current = 0;
+          isGroundedRef.current = false;
+        } else {
+          // Play mode: gravity + jumping
+          if (keyState['Space'] && isGroundedRef.current) {
+            verticalVelocityRef.current = JUMP_VELOCITY;
+            isGroundedRef.current = false;
+          }
+          verticalVelocityRef.current += GRAVITY_METERS_PER_SEC2 * delta;
+          if (verticalVelocityRef.current < MAX_FALL_SPEED) verticalVelocityRef.current = MAX_FALL_SPEED;
+          cameraObject.position.y += verticalVelocityRef.current * delta;
+        }
 
-        // Clamp to terrain height
+        // Ground collision/clamp
         const groundY = chunkManager.getHeightAt(cameraObject.position.x, cameraObject.position.z);
         if (Number.isFinite(groundY)) {
           const minY = (groundY as number) + EYE_HEIGHT;
-          if (cameraObject.position.y < minY) cameraObject.position.y = minY;
+          if (cameraObject.position.y < minY) {
+            cameraObject.position.y = minY;
+            if (!isDev) {
+              isGroundedRef.current = true;
+              verticalVelocityRef.current = 0;
+            }
+          } else if (!isDev) {
+            isGroundedRef.current = false;
+          }
         }
       }
 
@@ -406,8 +451,17 @@ export default function App() {
         </div>
 
         <div className="hint">
-          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move • <kbd>Space</kbd>/<kbd>Shift</kbd> up/down • <kbd>Q</kbd> sprint</div>
-          <div>Click to lock mouse • Explore to find creatures</div>
+          {mode === 'dev' ? (
+            <>
+              <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move • <kbd>Space</kbd>/<kbd>Shift</kbd> up/down • <kbd>Q</kbd> sprint</div>
+              <div>Click to lock mouse • Press <kbd>F1</kbd> for Play Mode</div>
+            </>
+          ) : (
+            <>
+              <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move • <kbd>Space</kbd> jump • <kbd>Q</kbd> sprint</div>
+              <div>Click to lock mouse • Press <kbd>F1</kbd> for Dev Mode</div>
+            </>
+          )}
         </div>
 
         <div className="journal">
@@ -426,95 +480,116 @@ export default function App() {
         {/* Reticle when locked */}
         {isLocked && <div className="reticle" />}
 
-        {/* Dev controls - always visible */}
-        <div className="dev-panel" style={{ position: 'absolute', top: 86, left: 16 }}>
-          <div className="content">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-              <div style={{ fontWeight: 800, letterSpacing: 0.6, fontSize: 12, color: '#ffd166', textTransform: 'uppercase' }}>Dev Panel</div>
-              <div style={{ fontSize: 12, color: '#cfd3e6' }}>FPS: <span style={{ color: '#fff', fontWeight: 800 }}>{fps}</span> · {avgFrameMs} ms</div>
-            </div>
+        {/* Mode Toggle Button */}
+        <div style={{ position: 'absolute', top: 12, right: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ color: '#cfd3e6', fontSize: 12 }}>Mode:</span>
+          <button
+            onClick={() => setMode((m) => (m === 'dev' ? 'play' : 'dev'))}
+            style={{
+              background: mode === 'dev' ? '#2d6cdf' : '#30a46c',
+              color: 'white',
+              border: 'none',
+              borderRadius: 6,
+              padding: '6px 10px',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+          >
+            {mode === 'dev' ? 'Dev (F1)' : 'Play (F1)'}
+          </button>
+        </div>
 
-            <div className="kv" style={{ marginBottom: 8 }}>
-              <div className="k">Sim Time</div>
-              <div className="v"><span ref={simTimeRef as any}>0.000</span></div>
-              <div className="k">Light Dir</div>
-              <div className="v"><span ref={lightDirRef as any}>0,0,0</span></div>
-            </div>
-
-            {/* Current biome and position info */}
-            <div style={{ 
-              marginBottom: '12px', 
-              padding: '8px', 
-              background: 'rgba(255, 255, 255, 0.05)', 
-              borderRadius: '8px',
-              fontSize: '11px'
-            }}>
-              <div style={{ color: '#87CEEB', fontWeight: 700 }}>
-                Biome: {currentBiome}
+        {/* Dev controls */}
+        {mode === 'dev' && (
+          <div className="dev-panel" style={{ position: 'absolute', top: 86, left: 16 }}>
+            <div className="content">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                <div style={{ fontWeight: 800, letterSpacing: 0.6, fontSize: 12, color: '#ffd166', textTransform: 'uppercase' }}>Dev Panel</div>
+                <div style={{ fontSize: 12, color: '#cfd3e6' }}>FPS: <span style={{ color: '#fff', fontWeight: 800 }}>{fps}</span> · {avgFrameMs} ms</div>
               </div>
-              <div style={{ color: '#ccc', marginTop: 4 }}>
-                Pos: {cameraPosition.x}, {cameraPosition.y}, {cameraPosition.z}
-              </div>
-            </div>
 
-            {/* Detailed biome parameters */}
-            {biomeParams && (
+              <div className="kv" style={{ marginBottom: 8 }}>
+                <div className="k">Sim Time</div>
+                <div className="v"><span ref={simTimeRef as any}>0.000</span></div>
+                <div className="k">Light Dir</div>
+                <div className="v"><span ref={lightDirRef as any}>0,0,0</span></div>
+              </div>
+
+              {/* Current biome and position info */}
               <div style={{ 
                 marginBottom: '12px', 
                 padding: '8px', 
-                background: 'rgba(0, 100, 200, 0.08)', 
+                background: 'rgba(255, 255, 255, 0.05)', 
                 borderRadius: '8px',
-                fontSize: '10px',
-                fontFamily: 'monospace'
+                fontSize: '11px'
               }}>
-                <div style={{ color: '#87CEEB', fontWeight: 700, marginBottom: 6 }}>
-                  Biome Parameters
+                <div style={{ color: '#87CEEB', fontWeight: 700 }}>
+                  Biome: {currentBiome}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 10 }}>
-                  <div>C: <span style={{ color: '#FFB347' }}>{biomeParams.continentalness.toFixed(3)}</span></div>
-                  <div>E: <span style={{ color: '#FFB347' }}>{biomeParams.erosion.toFixed(3)}</span></div>
-                  <div>T: <span style={{ color: '#FF6B6B' }}>{biomeParams.temperature.toFixed(3)}</span></div>
-                  <div>M: <span style={{ color: '#4ECDC4' }}>{biomeParams.moisture.toFixed(3)}</span></div>
-                  <div>Mmask: <span style={{ color: '#95E1D3' }}>{biomeParams.mountainMask.toFixed(3)}</span></div>
-                  <div>R: <span style={{ color: '#DDA0DD' }}>{biomeParams.relief.toFixed(3)}</span></div>
-                  <div>D: <span style={{ color: '#F0E68C' }}>{biomeParams.detail.toFixed(3)}</span></div>
-                  <div>Base: <span style={{ color: '#98FB98' }}>{biomeParams.baseHeight.toFixed(1)}</span></div>
-                </div>
-                <div style={{ marginTop: 6, fontSize: 10 }}>
-                  <div>Warped: <span style={{ color: '#FFA07A' }}>({biomeParams.warpedX.toFixed(0)}, {biomeParams.warpedY.toFixed(0)})</span></div>
-                  <div>Final Height: <span style={{ color: '#90EE90' }}>{biomeParams.finalHeight.toFixed(2)}</span></div>
+                <div style={{ color: '#ccc', marginTop: 4 }}>
+                  Pos: {cameraPosition.x}, {cameraPosition.y}, {cameraPosition.z}
                 </div>
               </div>
-            )}
 
-            {/* Creatures info */}
-            <div style={{ 
-              marginBottom: '12px', 
-              padding: '8px', 
-              background: 'rgba(100, 200, 100, 0.08)', 
-              borderRadius: '8px',
-              fontSize: '11px'
-            }}>
-              <div style={{ color: '#90EE90', fontWeight: 700, marginBottom: 6 }}>
-                Active Creatures: {creatureCount}
-              </div>
-              <div style={{ color: '#ccc' }}>
-                Spawning dynamically as you explore
-              </div>
-            </div>
+              {/* Detailed biome parameters */}
+              {biomeParams && (
+                <div style={{ 
+                  marginBottom: '12px', 
+                  padding: '8px', 
+                  background: 'rgba(0, 100, 200, 0.08)', 
+                  borderRadius: '8px',
+                  fontSize: '10px',
+                  fontFamily: 'monospace'
+                }}>
+                  <div style={{ color: '#87CEEB', fontWeight: 700, marginBottom: 6 }}>
+                    Biome Parameters
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 10 }}>
+                    <div>C: <span style={{ color: '#FFB347' }}>{biomeParams.continentalness.toFixed(3)}</span></div>
+                    <div>E: <span style={{ color: '#FFB347' }}>{biomeParams.erosion.toFixed(3)}</span></div>
+                    <div>T: <span style={{ color: '#FF6B6B' }}>{biomeParams.temperature.toFixed(3)}</span></div>
+                    <div>M: <span style={{ color: '#4ECDC4' }}>{biomeParams.moisture.toFixed(3)}</span></div>
+                    <div>Mmask: <span style={{ color: '#95E1D3' }}>{biomeParams.mountainMask.toFixed(3)}</span></div>
+                    <div>R: <span style={{ color: '#DDA0DD' }}>{biomeParams.relief.toFixed(3)}</span></div>
+                    <div>D: <span style={{ color: '#F0E68C' }}>{biomeParams.detail.toFixed(3)}</span></div>
+                    <div>Base: <span style={{ color: '#98FB98' }}>{biomeParams.baseHeight.toFixed(1)}</span></div>
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 10 }}>
+                    <div>Warped: <span style={{ color: '#FFA07A' }}>({biomeParams.warpedX.toFixed(0)}, {biomeParams.warpedY.toFixed(0)})</span></div>
+                    <div>Final Height: <span style={{ color: '#90EE90' }}>{biomeParams.finalHeight.toFixed(2)}</span></div>
+                  </div>
+                </div>
+              )}
 
-            {/* Terrain controls */}
-            <div style={{ marginBottom: 10 }}>
-              <label>Seed: </label>
-              <input
-                type="text"
-                value={params.seed}
-                onChange={(e) => setParams({ ...params, seed: e.target.value })}
-                style={{ width: 150, marginLeft: 10 }}
-              />
+              {/* Creatures info */}
+              <div style={{ 
+                marginBottom: '12px', 
+                padding: '8px', 
+                background: 'rgba(100, 200, 100, 0.08)', 
+                borderRadius: '8px',
+                fontSize: '11px'
+              }}>
+                <div style={{ color: '#90EE90', fontWeight: 700, marginBottom: 6 }}>
+                  Active Creatures: {creatureCount}
+                </div>
+                <div style={{ color: '#ccc' }}>
+                  Spawning dynamically as you explore
+                </div>
+              </div>
+
+              {/* Terrain controls */}
+              <div style={{ marginBottom: 10 }}>
+                <label>Seed: </label>
+                <input
+                  type="text"
+                  value={params.seed}
+                  onChange={(e) => setParams({ ...params, seed: e.target.value })}
+                  style={{ width: 150, marginLeft: 10 }}
+                />
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

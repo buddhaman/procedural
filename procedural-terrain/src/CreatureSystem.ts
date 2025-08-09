@@ -28,13 +28,46 @@ export class CreatureSystem {
   private getCreatureParams(seed: number): any {
     const rng = this.seedRandom(seed);
     
+    // Generate creature archetype for more varied creatures
+    const archetype = Math.floor(rng() * 4); // 0=quadruped, 1=biped, 2=hexapod, 3=giraffe
+    
+    let spineSegments, neckLength, legPairs;
+    
+    switch (archetype) {
+      case 0: // Standard quadruped (horse/dog-like)
+        spineSegments = 3 + Math.floor(rng() * 2); // 3-4 segments
+        neckLength = 1.0 + rng() * 0.5; // 1.0-1.5 normal neck
+        legPairs = 2; // 4 legs
+        break;
+      case 1: // Biped (bird/human-like)
+        spineSegments = 2 + Math.floor(rng() * 2); // 2-3 segments  
+        neckLength = 1.2 + rng() * 0.8; // 1.2-2.0 longer neck
+        legPairs = 1; // 2 legs only
+        break;
+      case 2: // Hexapod (insect-like)
+        spineSegments = 4 + Math.floor(rng() * 2); // 4-5 segments
+        neckLength = 0.8 + rng() * 0.4; // 0.8-1.2 shorter neck
+        legPairs = 3; // 6 legs
+        break;
+      case 3: // Giraffe-style
+        spineSegments = 3 + Math.floor(rng() * 3); // 3-5 segments
+        neckLength = 2.5 + rng() * 2.0; // 2.5-4.5 very long neck!
+        legPairs = 2; // 4 legs
+        break;
+      default:
+        spineSegments = 3;
+        neckLength = 1.0;
+        legPairs = 2;
+    }
+    
     return {
-      spineSegments: 3 + Math.floor(rng() * 2), // 3-4 segments
+      spineSegments,
       torsoR: 0.8 + rng() * 0.4, // 0.8-1.2
       tailR: 0.4 + rng() * 0.2,  // 0.4-0.6
       baseHeight: 2.0,
-      segmentDX: 2.2, // Longer spine segments
-      limbPairs: 2,
+      segmentDX: 2.2, // Spine segment spacing
+      neckLength, // Variable neck length for different archetypes
+      limbPairs: legPairs, // Now variable: 1, 2, or 3 pairs
       hipY: 0.7 + rng() * 0.2, // 0.7-0.9 (closer to body)
       kneeZ: 1.0 + rng() * 0.3, // 1.0-1.3
       kneeR: 0.4 + rng() * 0.2, // 0.4-0.6
@@ -45,9 +78,10 @@ export class CreatureSystem {
       stepX: 0.6 + rng() * 0.3, // 0.6-0.9
       stepY: 1.4 + rng() * 0.4, // 1.4-1.8
       stepRadius: 2.0 + rng() * 1.0, // 2.0-3.0
-      headX: 1.8 + rng() * 0.4, // 1.8-2.2
+      headX: neckLength, // Head distance = neck length
       headZ: 0.4 + rng() * 0.3, // 0.4-0.7
       headR: 0.8 + rng() * 0.3, // 0.8-1.1
+      archetype, // Store for debugging
       color: this.getRandomCreatureColor(rng)
     };
   }
