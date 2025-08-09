@@ -202,8 +202,8 @@ export class CreatureRenderer {
         p2.pos.y + offset.y
       );
       
-      // Average width for the beam
-      const avgWidth = (limb.w0 + limb.w1) / 4;
+      // Average width for the beam - make it thicker
+      const avgWidth = (limb.w0 + limb.w1) / 2.5; // Increased from /4 to /2.5
       this.renderer.renderBeam(from, to, avgWidth, avgWidth, undefined, colorObj);
     });
     

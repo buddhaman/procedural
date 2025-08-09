@@ -7,7 +7,7 @@ export class CreatureSystem {
   private scene: THREE.Scene;
   private renderer: CreatureRenderer;
   private chunkManager: ChunkManager;
-  private agent: Agent; // Single creature
+  private agents: Agent[] = []; // Multiple creatures
   private clock = new THREE.Clock();
   
   constructor(scene: THREE.Scene, chunkManager: ChunkManager) {
@@ -15,33 +15,35 @@ export class CreatureSystem {
     this.chunkManager = chunkManager;
     this.renderer = new CreatureRenderer(scene);
     
-    // Create a single creature at the origin
-    this.agent = this.createCreature();
+    // Create multiple creatures with random phenotypes
+    this.agents.push(this.createCreature(42, { x: 0, y: 0 }));
+    this.agents.push(this.createCreature(123, { x: 15, y: 10 }));
+    this.agents.push(this.createCreature(456, { x: -12, y: 8 }));
   }
   
   private getCreatureParams(seed: number): any {
     const rng = this.seedRandom(seed);
     
     return {
-      spineSegments: 4 + Math.floor(rng() * 3), // 4-6 segments
+      spineSegments: 3 + Math.floor(rng() * 2), // 3-4 segments
       torsoR: 0.8 + rng() * 0.4, // 0.8-1.2
-      tailR: 0.3 + rng() * 0.2,  // 0.3-0.5
-      baseHeight: 1.5 + rng() * 0.5, // 1.5-2.0
-      segmentDX: 1.2 + rng() * 0.3, // 1.2-1.5
-      limbPairs: 2, // Always 2 pairs for now
-      hipY: 0.8 + rng() * 0.2, // 0.8-1.0
-      kneeZ: 0.8 + rng() * 0.2, // 0.8-1.0
-      kneeR: 0.4 + rng() * 0.1, // 0.4-0.5
-      footX: 0.3 + rng() * 0.2, // 0.3-0.5
-      footY: 1.0 + rng() * 0.3, // 1.0-1.3
-      footR: 0.3 + rng() * 0.1, // 0.3-0.4
+      tailR: 0.4 + rng() * 0.2,  // 0.4-0.6
+      baseHeight: 2.0,
+      segmentDX: 2.2, // Longer spine segments
+      limbPairs: 2,
+      hipY: 1.0 + rng() * 0.2, // 1.0-1.2
+      kneeZ: 1.0 + rng() * 0.3, // 1.0-1.3
+      kneeR: 0.4 + rng() * 0.2, // 0.4-0.6
+      footX: 0.4 + rng() * 0.2, // 0.4-0.6
+      footY: 1.2 + rng() * 0.4, // 1.2-1.6
+      footR: 0.3 + rng() * 0.2, // 0.3-0.5
       legZ: 2.0 + rng() * 0.5, // 2.0-2.5
-      stepX: 0.5 + rng() * 0.3, // 0.5-0.8
-      stepY: 1.2 + rng() * 0.3, // 1.2-1.5
+      stepX: 0.6 + rng() * 0.3, // 0.6-0.9
+      stepY: 1.4 + rng() * 0.4, // 1.4-1.8
       stepRadius: 2.0 + rng() * 1.0, // 2.0-3.0
-      headX: 1.5 + rng() * 0.3, // 1.5-1.8
-      headZ: 0.3 + rng() * 0.2, // 0.3-0.5
-      headR: 0.6 + rng() * 0.2, // 0.6-0.8
+      headX: 1.8 + rng() * 0.4, // 1.8-2.2
+      headZ: 0.4 + rng() * 0.3, // 0.4-0.7
+      headR: 0.8 + rng() * 0.3, // 0.8-1.1
       color: this.getRandomCreatureColor(rng)
     };
   }
@@ -68,26 +70,31 @@ export class CreatureSystem {
     };
   }
   
-  private createCreature(): Agent {
-    const seed = 42; // Fixed seed for consistent creature
+  private createCreature(seed: number, startPos: V2): Agent {
     const params = this.getCreatureParams(seed);
     
     const agent = buildCreature(seed, params);
-    agent.pos = { x: 0, y: 0 }; // Start at origin
-    agent.orientation = 0;
+    agent.pos = { x: startPos.x, y: startPos.y };
+    agent.orientation = Math.random() * Math.PI * 2; // Random starting orientation
     
-    // Get terrain height at origin
-    const terrainHeight = this.chunkManager.getHeightAt(0, 0);
+    // Get terrain height at starting position
+    const terrainHeight = this.chunkManager.getHeightAt(startPos.x, startPos.y);
     const baseHeight = Number.isFinite(terrainHeight) ? terrainHeight : 0;
     
-    // Position creature on terrain
+    // Position creature on terrain at starting position
     for (const particle of agent.skeleton.particles) {
-      particle.pos.z += baseHeight; // Position on terrain
+      particle.pos.x += startPos.x;
+      particle.pos.y += startPos.y;
+      particle.pos.z += baseHeight;
+      particle.prev.x += startPos.x;
+      particle.prev.y += startPos.y;
       particle.prev.z += baseHeight;
     }
     
     // Update leg foot positions to terrain
     for (const leg of agent.legs) {
+      leg.footPos.x += startPos.x;
+      leg.footPos.y += startPos.y;
       leg.footPos.z = baseHeight;
     }
     
@@ -95,13 +102,14 @@ export class CreatureSystem {
   }
   
   private updateCreatureMovement(agent: Agent, dt: number): void {
-    // Simple circular walking pattern around the origin
-    agent.orientation += 0.5 * dt; // Turn slowly
+    // Random wandering behavior
+    agent.orientation += (Math.random() - 0.5) * 1.0 * dt; // Random turning
     
-    // Move forward slowly
-    const moveSpeed = 3.0;
-    agent.pos.x += Math.cos(agent.orientation) * moveSpeed * dt;
-    agent.pos.y += Math.sin(agent.orientation) * moveSpeed * dt;
+    // Move forward at random speeds
+    const baseSpeed = 1.5;
+    const randomSpeed = baseSpeed + (Math.random() - 0.5) * 1.0;
+    agent.pos.x += Math.cos(agent.orientation) * randomSpeed * dt;
+    agent.pos.y += Math.sin(agent.orientation) * randomSpeed * dt;
     
     // Update foot positions to terrain height
     for (const leg of agent.legs) {
@@ -118,23 +126,26 @@ export class CreatureSystem {
     // Reset renderer for new frame
     this.renderer.reset();
     
-    // Update the single creature
-    this.updateCreatureMovement(this.agent, dt);
-    
     // Create terrain height function for physics
     const getHeightAt = (x: number, z: number) => this.chunkManager.getHeightAt(x, z);
     
-    // Update creature physics with terrain collision
-    tickAgent(this.agent, dt, getHeightAt);
-    
-    // Render the creature
-    this.renderer.renderSkeleton(
-      this.agent.skeleton, 
-      this.agent.color, 
-      this.agent.headIdx,
-      this.agent.orientation,
-      { x: 0, y: 0, z: 0 }
-    );
+    // Update all creatures
+    for (const agent of this.agents) {
+      // Update movement
+      this.updateCreatureMovement(agent, dt);
+      
+      // Update physics with terrain collision
+      tickAgent(agent, dt, getHeightAt);
+      
+      // Render the creature
+      this.renderer.renderSkeleton(
+        agent.skeleton, 
+        agent.color, 
+        agent.headIdx,
+        agent.orientation,
+        { x: 0, y: 0, z: 0 }
+      );
+    }
     
     // Update renderer
     this.renderer.update();

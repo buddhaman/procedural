@@ -172,11 +172,13 @@ export type Agent = {
 };
 
 // Helper to choose which spine segments get legs
-function chooseSegments(N: number, limbPairs: number): number[] {
+function chooseSegments(N: number, hasLeg: boolean[]): number[] {
   const segments: number[] = [];
-  if (limbPairs >= 1) segments.push(Math.floor(N * 0.3)); // Front legs
-  if (limbPairs >= 2) segments.push(Math.floor(N * 0.7)); // Back legs
-  if (limbPairs >= 3) segments.push(Math.floor(N * 0.5)); // Middle legs
+  for (let i = 0; i < Math.min(N, hasLeg.length); i++) {
+    if (hasLeg[i]) {
+      segments.push(i);
+    }
+  }
   return segments;
 }
 
@@ -189,21 +191,28 @@ export function buildCreature(seed: number, params: any): Agent {
   
   // Create spine
   for (let i = 0; i < N; i++) {
-    const r = lerp(params.torsoR, params.tailR, i / (N - 1));
+    const r = params.backboneRadius ? params.backboneRadius[i] : lerp(params.torsoR, params.tailR, i / (N - 1));
     const jIdx = addJoint(s, p0, r, params.color);
     spine.push(jIdx);
     
     if (i > 0) {
       const prev = spine[i - 1];
-      addLimbTrapezoid(s, prev, r * 2, jIdx, r * 2, params.color);
+      const prevR = params.backboneRadius ? params.backboneRadius[i - 1] : r;
+      addLimbTrapezoid(s, prev, prevR * 0.7, jIdx, r * 0.7, params.color); // Thinner spine limbs
     }
     
     p0 = add(p0, { x: params.segmentDX, y: 0, z: 0 });
   }
   
-  // Add mirrored legs
+  // Add mirrored legs - use simple approach that worked before
   const legs: LegCtrl[] = [];
-  for (const seg of chooseSegments(N, params.limbPairs)) {
+  
+  // Simple leg placement like the original - always add legs at segments 1 and 3 if they exist
+  const legSegments: number[] = [];
+  if (N >= 2) legSegments.push(Math.floor(N * 0.3)); // Front legs
+  if (N >= 3) legSegments.push(Math.floor(N * 0.7)); // Back legs
+  
+  for (const seg of legSegments) {
     const base = s.joints[spine[seg]].pIdx;
     
     for (const dir of [-1, 1]) {
@@ -211,21 +220,22 @@ export function buildCreature(seed: number, params: any): Agent {
         x: 0, 
         y: dir * params.hipY, 
         z: -params.kneeZ 
-      }), params.kneeR, params.color);
+      }), params.kneeR || 0.5, params.color);
       
       const foot = addJoint(s, add(s.particles[base].pos, { 
         x: params.footX, 
         y: dir * params.footY, 
         z: -params.legZ 
-      }), params.footR, params.color);
+      }), params.footR || 0.4, params.color);
       
-      addLimbTrapezoid(s, base, params.torsoR, knee, params.kneeR, params.color);
-      addLimbTrapezoid(s, knee, params.kneeR, foot, params.footR, params.color);
+      // Leg limbs - thinner than joints for better look
+      addLimbTrapezoid(s, base, (params.torsoR || 1.0) * 0.6, knee, (params.kneeR || 0.5) * 0.6, params.color);
+      addLimbTrapezoid(s, knee, (params.kneeR || 0.5) * 0.6, foot, (params.footR || 0.4) * 0.6, params.color);
       
       legs.push({
         jointIdx: foot,
         targetOffset: { x: params.stepX, y: dir * params.stepY, z: 0 },
-        stepRadius: params.stepRadius,
+        stepRadius: params.stepRadius || 2.0,
         footPos: { ...s.particles[s.joints[foot].pIdx].pos }
       });
     }
@@ -238,7 +248,7 @@ export function buildCreature(seed: number, params: any): Agent {
     z: params.headZ
   }), params.headR, params.color);
   
-  addLimbTrapezoid(s, spine[N - 1], params.torsoR, head, params.headR, params.color);
+  addLimbTrapezoid(s, spine[N - 1], (params.torsoR || 1.0) * 0.5, head, (params.headR || 0.8) * 0.5, params.color);
   
   return {
     skeleton: s,
@@ -295,15 +305,19 @@ export function tickAgent(a: Agent, dt: number, getHeightAt?: (x: number, z: num
   
   // Head positioning - keep head forward and up
   const h = a.skeleton.joints[a.headIdx].pIdx;
-  const headTarget = add(center, { x: dir.x * 2.0, y: dir.y * 2.0, z: 2.0 });
+  const headTarget = add(center, { x: dir.x * 2.0, y: dir.y * 2.0, z: 3.0 }); // Higher target
   
   // Smooth head movement towards target
   const headCurrent = a.skeleton.particles[h].pos;
   const headDiff = sub(headTarget, headCurrent);
-  a.skeleton.particles[h].pos = add(headCurrent, mul(headDiff, 0.1));
+  a.skeleton.particles[h].pos = add(headCurrent, mul(headDiff, 0.05)); // Gentler movement
   
-  // Add upward force to head for posture (gentler)
-  a.skeleton.particles[h].prev.z -= 0.15 * dt * 60; // Reduced from 0.3 to 0.15
+  // Strong upward force to head to keep it up (like neck muscles)
+  a.skeleton.particles[h].prev.z -= 0.5 * dt * 60; // Stronger upward force
+  
+  // Also add forward force to keep head in proper position
+  a.skeleton.particles[h].prev.x += dir.x * 0.1 * dt * 60;
+  a.skeleton.particles[h].prev.y += dir.y * 0.1 * dt * 60;
   
   // Update skeleton with terrain collision
   updateSkeleton(a.skeleton, getHeightAt);
