@@ -46,6 +46,8 @@ export default function App() {
   const [avgFrameMs, setAvgFrameMs] = useState<number>(0);
   const posRealtimeRef = useRef<HTMLSpanElement | null>(null);
   const compassRealtimeRef = useRef<HTMLSpanElement | null>(null);
+  const simTimeRef = useRef<HTMLSpanElement | null>(null);
+  const lightDirRef = useRef<HTMLSpanElement | null>(null);
   const fpsFramesSinceUpdate = useRef<number>(0);
   const fpsAccumulatedDelta = useRef<number>(0);
   const fpsLastReportTime = useRef<number>(0);
@@ -55,7 +57,7 @@ export default function App() {
 
     // Scene setup
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87c5ff);
+    scene.background = new THREE.Color(0x87c5ff); // solid blue sky
 
     const camera = new THREE.PerspectiveCamera(70, container.clientWidth / container.clientHeight, 0.1, 2000);
     camera.position.set(0, CAMERA_START_Y, 120);
@@ -72,8 +74,8 @@ export default function App() {
     container.appendChild(renderer.domElement);
 
     // Lighting
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.9);
-    directionalLight.position.set(100, 100, 50);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    directionalLight.position.set(100, 120, 20);
     directionalLight.castShadow = true;
     directionalLight.shadow.mapSize.width = 2048;
     directionalLight.shadow.mapSize.height = 2048;
@@ -92,6 +94,14 @@ export default function App() {
     scene.add(ambientLight);
     const hemiLight = new THREE.HemisphereLight(0xbfe3ff, 0x8f6a40, 0.7);
     scene.add(hemiLight);
+
+    // Simple sky color; sun billboard for direction
+    const sunBillboard = new THREE.Mesh(
+      new THREE.PlaneGeometry(80, 80),
+      new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 1.0 })
+    );
+    sunBillboard.renderOrder = 999;
+    scene.add(sunBillboard);
 
     // Controls (Pointer lock)
     const controls = new PointerLockControls(camera, renderer.domElement);
@@ -152,6 +162,8 @@ export default function App() {
     window.addEventListener('resize', onResize);
 
     const clock = new THREE.Clock();
+    let dayTime = 0; // 0..1 day cycle
+    const dayLengthSec = 90; // 1.5 minutes for a full day
 
     function animate() {
       const delta = Math.min(clock.getDelta(), 0.05);
@@ -188,7 +200,38 @@ export default function App() {
       chunkManager.updateChunks(camera.position, params);
       
       // Update water animation
-      chunkManager.updateWater(clock.getElapsedTime(), camera.position, params);
+      const elapsed = clock.getElapsedTime();
+      chunkManager.updateWater(elapsed, camera.position, params);
+
+      // Day/Night cycle (position and light color)
+      dayTime = (dayTime + delta / dayLengthSec) % 1;
+      // Sun direction: rotate around scene
+      const sunTheta = dayTime * Math.PI * 2; // 0..2π
+      const sunY = Math.sin(sunTheta);
+      const sunX = Math.cos(sunTheta + 0.3) * 0.8;
+      const sunZ = Math.cos(sunTheta - 0.2) * 0.9;
+      const sunDir = new THREE.Vector3(sunX, sunY, sunZ).normalize();
+      directionalLight.position.copy(sunDir.clone().multiplyScalar(400));
+      directionalLight.target.position.set(0, 0, 0);
+      directionalLight.target.updateMatrixWorld();
+      // Tint light slightly warmer at low sun angles
+      const warm = THREE.MathUtils.clamp(1 - Math.max(sunY, 0), 0, 1);
+      directionalLight.color.setRGB(1, 1 - warm * 0.25, 1 - warm * 0.4);
+      directionalLight.intensity = THREE.MathUtils.lerp(0.15, 1.05, Math.max(0, sunY * 0.5 + 0.5));
+
+      // Position the sun billboard far along light direction and face camera
+      const sunDistance = 5000;
+      const sunPos = sunDir.clone().multiplyScalar(sunDistance);
+      sunBillboard.position.copy(sunPos);
+      sunBillboard.lookAt(camera.position);
+
+      // Dev HUD: simulation time and light dir (realtime)
+      if (simTimeRef.current) {
+        simTimeRef.current.textContent = dayTime.toFixed(3);
+      }
+      if (lightDirRef.current) {
+        lightDirRef.current.textContent = `${sunDir.x.toFixed(2)}, ${sunDir.y.toFixed(2)}, ${sunDir.z.toFixed(2)}`;
+      }
 
       // Realtime HUD updates (position and compass)
       const posRealtime = camera.position;
@@ -389,6 +432,13 @@ export default function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
               <div style={{ fontWeight: 800, letterSpacing: 0.6, fontSize: 12, color: '#ffd166', textTransform: 'uppercase' }}>Dev Panel</div>
               <div style={{ fontSize: 12, color: '#cfd3e6' }}>FPS: <span style={{ color: '#fff', fontWeight: 800 }}>{fps}</span> · {avgFrameMs} ms</div>
+            </div>
+
+            <div className="kv" style={{ marginBottom: 8 }}>
+              <div className="k">Sim Time</div>
+              <div className="v"><span ref={simTimeRef as any}>0.000</span></div>
+              <div className="k">Light Dir</div>
+              <div className="v"><span ref={lightDirRef as any}>0,0,0</span></div>
             </div>
 
             {/* Current biome and position info */}
