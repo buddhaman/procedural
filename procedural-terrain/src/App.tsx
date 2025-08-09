@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { ChunkManager } from './ChunkManager';
+import { CreatureSystem } from './CreatureSystem';
 import { CHUNK_SIZE } from './types';
 import './styles.css';
 
@@ -38,9 +39,12 @@ export default function App() {
   const [speciesFound, setSpeciesFound] = useState<number>(0);
   const [journalEntries, setJournalEntries] = useState<string[]>([]);
   const chunkManagerRef = useRef<ChunkManager | null>(null);
+  const creatureSystemRef = useRef<CreatureSystem | null>(null);
   const lastBiomeUpdate = useRef<number>(0);
   const [fps, setFps] = useState<number>(0);
   const [avgFrameMs, setAvgFrameMs] = useState<number>(0);
+  const posRealtimeRef = useRef<HTMLSpanElement | null>(null);
+  const compassRealtimeRef = useRef<HTMLSpanElement | null>(null);
   const fpsFramesSinceUpdate = useRef<number>(0);
   const fpsAccumulatedDelta = useRef<number>(0);
   const fpsLastReportTime = useRef<number>(0);
@@ -98,6 +102,10 @@ export default function App() {
     // Initialize chunk manager
     const chunkManager = new ChunkManager(scene, 4);
     chunkManagerRef.current = chunkManager;
+    
+    // Initialize creature system
+    const creatureSystem = new CreatureSystem(scene, chunkManager);
+    creatureSystemRef.current = creatureSystem;
     
     // Set initial water material values
     if (chunkManager.waterMaterial) {
@@ -179,6 +187,28 @@ export default function App() {
       // Update water animation
       chunkManager.updateWater(clock.getElapsedTime(), camera.position, params);
 
+      // Realtime HUD updates (position and compass)
+      const posRealtime = camera.position;
+      if (posRealtimeRef.current) {
+        posRealtimeRef.current.textContent = `${posRealtime.x.toFixed(1)}, ${posRealtime.y.toFixed(1)}, ${posRealtime.z.toFixed(1)}`;
+      }
+      if (compassRealtimeRef.current) {
+        const forward = new THREE.Vector3();
+        camera.getWorldDirection(forward);
+        const radians = Math.atan2(forward.x, forward.z);
+        const degrees = (THREE.MathUtils.radToDeg(radians) + 360) % 360;
+        const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+        const idx = Math.round(degrees / 45) % 8;
+        compassRealtimeRef.current.textContent = `${dirs[idx]} ${Math.round(degrees)}°`;
+      }
+
+      // Update creatures
+      creatureSystem.update({
+        x: camera.position.x,
+        y: camera.position.y,
+        z: camera.position.z
+      });
+
       // Update UI with current biome (throttled to every 500ms)
       const currentTime = clock.getElapsedTime();
       // FPS accumulation and reporting (every ~0.5s to minimize re-renders)
@@ -223,6 +253,11 @@ export default function App() {
       if (chunkManagerRef.current) {
         chunkManagerRef.current.dispose();
         chunkManagerRef.current = null;
+      }
+      
+      if (creatureSystemRef.current) {
+        creatureSystemRef.current.dispose();
+        creatureSystemRef.current = null;
       }
       
       container.removeChild(renderer.domElement);
@@ -276,11 +311,11 @@ export default function App() {
               <div className="k">Biome</div>
               <div className="v">{currentBiome.charAt(0).toUpperCase() + currentBiome.slice(1)}</div>
               <div className="k">Position</div>
-              <div className="v">{cameraPosition.x}, {cameraPosition.y}, {cameraPosition.z}</div>
+              <div className="v"><span ref={posRealtimeRef as any}>{cameraPosition.x.toFixed ? `${(cameraPosition.x as any).toFixed?.(1)}` : cameraPosition.x}, {cameraPosition.y.toFixed ? `${(cameraPosition.y as any).toFixed?.(1)}` : cameraPosition.y}, {cameraPosition.z.toFixed ? `${(cameraPosition.z as any).toFixed?.(1)}` : cameraPosition.z}</span></div>
               <div className="k">Compass</div>
               <div className="v">
                 <div className="compass">
-                  <span>{directionText}</span>
+                  <span ref={compassRealtimeRef as any}>{directionText}</span>
                   <div className="rose">
                     <div className="ticks">
                       <div className="tick">N</div>
