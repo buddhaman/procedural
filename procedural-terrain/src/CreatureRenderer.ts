@@ -40,6 +40,8 @@ export class InstancedRenderer {
         this.beamMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         this.beamMesh.castShadow = true;
         this.beamMesh.receiveShadow = true;
+        // Disable frustum culling to prevent disappearing
+        this.beamMesh.frustumCulled = false;
         this.scene.add(this.beamMesh);
         
         // Create sphere geometry
@@ -50,6 +52,8 @@ export class InstancedRenderer {
         this.sphereMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         this.sphereMesh.castShadow = true;
         this.sphereMesh.receiveShadow = true;
+        // Disable frustum culling to prevent disappearing  
+        this.sphereMesh.frustumCulled = false;
         this.scene.add(this.sphereMesh);
         
         // Create light beam mesh
@@ -66,6 +70,8 @@ export class InstancedRenderer {
         this.lightBeamMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         this.lightBeamMesh.castShadow = false;
         this.lightBeamMesh.receiveShadow = false;
+        // Disable frustum culling to prevent disappearing
+        this.lightBeamMesh.frustumCulled = false;
         this.scene.add(this.lightBeamMesh);
     }
     
@@ -147,6 +153,30 @@ export class InstancedRenderer {
         if (this.beamMesh.instanceColor) this.beamMesh.instanceColor.needsUpdate = true;
         if (this.sphereMesh.instanceColor) this.sphereMesh.instanceColor.needsUpdate = true;
         if (this.lightBeamMesh.instanceColor) this.lightBeamMesh.instanceColor.needsUpdate = true;
+
+        // Force very large bounding volumes to prevent culling issues
+        const largeBounds = new THREE.Box3(
+            new THREE.Vector3(-1000, -1000, -1000),
+            new THREE.Vector3(1000, 1000, 1000)
+        );
+        
+        this.beamMesh.boundingBox = largeBounds;
+        this.sphereMesh.boundingBox = largeBounds;
+        this.lightBeamMesh.boundingBox = largeBounds;
+        
+        const largeSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1000);
+        this.beamMesh.boundingSphere = largeSphere;
+        this.sphereMesh.boundingSphere = largeSphere;
+        this.lightBeamMesh.boundingSphere = largeSphere;
+        
+        // Mark bounds as manually updated
+        this.beamMesh.boundingBox.needsUpdate = false;
+        this.sphereMesh.boundingBox.needsUpdate = false;
+        this.lightBeamMesh.boundingBox.needsUpdate = false;
+        
+        this.beamMesh.boundingSphere.needsUpdate = false;
+        this.sphereMesh.boundingSphere.needsUpdate = false;
+        this.lightBeamMesh.boundingSphere.needsUpdate = false;
     }
 
     public dispose(): void {

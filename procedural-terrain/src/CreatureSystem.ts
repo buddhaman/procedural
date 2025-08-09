@@ -31,11 +31,11 @@ export class CreatureSystem {
       baseHeight: 2.0,
       segmentDX: 2.2, // Longer spine segments
       limbPairs: 2,
-      hipY: 1.0 + rng() * 0.2, // 1.0-1.2
+      hipY: 0.7 + rng() * 0.2, // 0.7-0.9 (closer to body)
       kneeZ: 1.0 + rng() * 0.3, // 1.0-1.3
       kneeR: 0.4 + rng() * 0.2, // 0.4-0.6
-      footX: 0.4 + rng() * 0.2, // 0.4-0.6
-      footY: 1.2 + rng() * 0.4, // 1.2-1.6
+      footX: 0.3 + rng() * 0.2, // 0.3-0.5 (closer to body)
+      footY: 0.9 + rng() * 0.3, // 0.9-1.2 (closer to body)
       footR: 0.3 + rng() * 0.2, // 0.3-0.5
       legZ: 2.0 + rng() * 0.5, // 2.0-2.5
       stepX: 0.6 + rng() * 0.3, // 0.6-0.9
@@ -102,12 +102,12 @@ export class CreatureSystem {
   }
   
   private updateCreatureMovement(agent: Agent, dt: number): void {
-    // Random wandering behavior
-    agent.orientation += (Math.random() - 0.5) * 1.0 * dt; // Random turning
+    // Faster random wandering behavior
+    agent.orientation += (Math.random() - 0.5) * 2.5 * dt; // Much faster turning - increased from 1.0 to 2.5
     
-    // Move forward at random speeds
-    const baseSpeed = 1.5;
-    const randomSpeed = baseSpeed + (Math.random() - 0.5) * 1.0;
+    // Move forward at faster speeds
+    const baseSpeed = 4.5; // Increased from 1.5 to 4.5
+    const randomSpeed = baseSpeed + (Math.random() - 0.5) * 2.0; // More speed variation
     agent.pos.x += Math.cos(agent.orientation) * randomSpeed * dt;
     agent.pos.y += Math.sin(agent.orientation) * randomSpeed * dt;
     

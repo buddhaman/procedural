@@ -187,9 +187,16 @@ export function buildCreature(seed: number, params: any): Agent {
   const spine: number[] = [];
   const N = params.spineSegments;
   
+  // Start with neck position (like C++ code)
   let p0: V3 = { x: 0, y: 0, z: params.baseHeight };
   
-  // Create spine
+  // Calculate spacing like C++ code: diff = 9.0f*scale
+  const diff = params.segmentDX; // This should be the spacing between segments
+  
+  // Offset beginning position by diff*(n_backbones-1)/2 such that the agent is centered (from C++)
+  p0 = add(p0, { x: -(N - 1) * diff / 2.0, y: 0, z: 0 });
+  
+  // Create spine with proper spacing
   for (let i = 0; i < N; i++) {
     const r = params.backboneRadius ? params.backboneRadius[i] : lerp(params.torsoR, params.tailR, i / (N - 1));
     const jIdx = addJoint(s, p0, r, params.color);
@@ -201,13 +208,26 @@ export function buildCreature(seed: number, params: any): Agent {
       addLimbTrapezoid(s, prev, prevR * 0.7, jIdx, r * 0.7, params.color); // Thinner spine limbs
     }
     
-    p0 = add(p0, { x: params.segmentDX, y: 0, z: 0 });
+    // Move to next position with proper spacing (only if not the last segment)
+    if (i < N - 1) {
+      p0 = add(p0, { x: diff, y: 0, z: 0 });
+    }
   }
   
-  // Add mirrored legs - use simple approach that worked before
+  // Store target positions for legs (like C++ agent->body.target_positions)
+  const targetPositions: V3[] = [];
+  let targetP = { x: -(N - 1) * diff / 2.0, y: 0, z: params.baseHeight };
+  for (let i = 0; i < N; i++) {
+    targetPositions.push({ ...targetP });
+    if (i < N - 1) {
+      targetP = add(targetP, { x: diff, y: 0, z: 0 });
+    }
+  }
+  
+  // Add mirrored legs with proper spacing
   const legs: LegCtrl[] = [];
   
-  // Simple leg placement like the original - always add legs at segments 1 and 3 if they exist
+  // Simple leg placement - always add legs at segments based on spine length
   const legSegments: number[] = [];
   if (N >= 2) legSegments.push(Math.floor(N * 0.3)); // Front legs
   if (N >= 3) legSegments.push(Math.floor(N * 0.7)); // Back legs
@@ -232,9 +252,14 @@ export function buildCreature(seed: number, params: any): Agent {
       addLimbTrapezoid(s, base, (params.torsoR || 1.0) * 0.6, knee, (params.kneeR || 0.5) * 0.6, params.color);
       addLimbTrapezoid(s, knee, (params.kneeR || 0.5) * 0.6, foot, (params.footR || 0.4) * 0.6, params.color);
       
+      // Use target position for leg offset (like C++ code)
+      const targetOffset = { ...targetPositions[seg] };
+      targetOffset.y += dir * 2.0; // Closer to body - reduced from 3.0 to 2.0
+      targetOffset.z = 0.0; // Ground level
+      
       legs.push({
         jointIdx: foot,
-        targetOffset: { x: params.stepX, y: dir * params.stepY, z: 0 },
+        targetOffset: targetOffset,
         stepRadius: params.stepRadius || 2.0,
         footPos: { ...s.particles[s.joints[foot].pIdx].pos }
       });
