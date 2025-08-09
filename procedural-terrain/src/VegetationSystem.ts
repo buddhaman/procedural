@@ -53,7 +53,7 @@ export class VegetationSystem {
         name: 'oak',
         baseColorRGB: [0.4, 0.2, 0.1], // Brown trunk
         leafColorRGB: [0.2, 0.6, 0.1],
-        sizeRange: [4, 7], // Bigger oaks
+        sizeRange: [3, 5], // Back to 3-5 units
         minSpacingR: 10,
         leafSize: 1.4,
         useLeaves: true,
@@ -68,7 +68,7 @@ export class VegetationSystem {
         name: 'pine',
         baseColorRGB: [0.3, 0.15, 0.05], // Dark brown trunk
         leafColorRGB: [0.1, 0.4, 0.1],
-        sizeRange: [6, 9], // Tall pines
+        sizeRange: [4, 5], // Back to reasonable units
         minSpacingR: 8,
         leafSize: 0.7,
         useLeaves: true,
@@ -110,7 +110,7 @@ export class VegetationSystem {
         name: 'spruce',
         baseColorRGB: [0.25, 0.12, 0.04], // Dark brown trunk
         leafColorRGB: [0.05, 0.3, 0.05],
-        sizeRange: [5, 8], // Tall spruces
+        sizeRange: [4, 5], // Back to reasonable units
         minSpacingR: 9,
         leafSize: 0.6,
         useLeaves: true,
@@ -140,7 +140,7 @@ export class VegetationSystem {
         name: 'redwood',
         baseColorRGB: [0.6, 0.3, 0.2], // Reddish trunk
         leafColorRGB: [0.1, 0.5, 0.1],
-        sizeRange: [8, 12], // MASSIVE trees
+        sizeRange: [4, 5], // Same units but will feel massive due to scale
         minSpacingR: 15,
         leafSize: 2.0,
         useLeaves: true,

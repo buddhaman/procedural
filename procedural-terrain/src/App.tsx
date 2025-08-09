@@ -39,6 +39,11 @@ export default function App() {
   const [journalEntries, setJournalEntries] = useState<string[]>([]);
   const chunkManagerRef = useRef<ChunkManager | null>(null);
   const lastBiomeUpdate = useRef<number>(0);
+  const [fps, setFps] = useState<number>(0);
+  const [avgFrameMs, setAvgFrameMs] = useState<number>(0);
+  const fpsFramesSinceUpdate = useRef<number>(0);
+  const fpsAccumulatedDelta = useRef<number>(0);
+  const fpsLastReportTime = useRef<number>(0);
 
   useEffect(() => {
     const container = mountRef.current!;
@@ -176,6 +181,19 @@ export default function App() {
 
       // Update UI with current biome (throttled to every 500ms)
       const currentTime = clock.getElapsedTime();
+      // FPS accumulation and reporting (every ~0.5s to minimize re-renders)
+      fpsFramesSinceUpdate.current += 1;
+      fpsAccumulatedDelta.current += delta;
+      if (currentTime - fpsLastReportTime.current >= 0.5) {
+        const dt = currentTime - fpsLastReportTime.current || 1;
+        const frames = fpsFramesSinceUpdate.current;
+        setFps(Math.round(frames / dt));
+        const avgMs = (fpsAccumulatedDelta.current / Math.max(frames, 1)) * 1000;
+        setAvgFrameMs(Math.round(avgMs));
+        fpsFramesSinceUpdate.current = 0;
+        fpsAccumulatedDelta.current = 0;
+        fpsLastReportTime.current = currentTime;
+      }
       if (currentTime - lastBiomeUpdate.current > 0.5) {
         lastBiomeUpdate.current = currentTime;
         const pos = camera.position;
@@ -311,7 +329,160 @@ export default function App() {
         {/* Reticle when locked */}
         {isLocked && <div className="reticle" />}
 
-        {/* Dev controls removed for now */}
+        {/* Dev controls - always visible */}
+        <div className="dev-panel" style={{ position: 'absolute', top: 86, left: 16 }}>
+          <div className="content">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+              <div style={{ fontWeight: 800, letterSpacing: 0.6, fontSize: 12, color: '#ffd166', textTransform: 'uppercase' }}>Dev Panel</div>
+              <div style={{ fontSize: 12, color: '#cfd3e6' }}>FPS: <span style={{ color: '#fff', fontWeight: 800 }}>{fps}</span> · {avgFrameMs} ms</div>
+            </div>
+
+            {/* Current biome and position info */}
+            <div style={{ 
+              marginBottom: '12px', 
+              padding: '8px', 
+              background: 'rgba(255, 255, 255, 0.05)', 
+              borderRadius: '8px',
+              fontSize: '11px'
+            }}>
+              <div style={{ color: '#87CEEB', fontWeight: 700 }}>
+                Biome: {currentBiome}
+              </div>
+              <div style={{ color: '#ccc', marginTop: 4 }}>
+                Pos: {cameraPosition.x}, {cameraPosition.y}, {cameraPosition.z}
+              </div>
+            </div>
+
+            {/* Detailed biome parameters */}
+            {biomeParams && (
+              <div style={{ 
+                marginBottom: '12px', 
+                padding: '8px', 
+                background: 'rgba(0, 100, 200, 0.08)', 
+                borderRadius: '8px',
+                fontSize: '10px',
+                fontFamily: 'monospace'
+              }}>
+                <div style={{ color: '#87CEEB', fontWeight: 700, marginBottom: 6 }}>
+                  Biome Parameters
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 10 }}>
+                  <div>C: <span style={{ color: '#FFB347' }}>{biomeParams.continentalness.toFixed(3)}</span></div>
+                  <div>E: <span style={{ color: '#FFB347' }}>{biomeParams.erosion.toFixed(3)}</span></div>
+                  <div>T: <span style={{ color: '#FF6B6B' }}>{biomeParams.temperature.toFixed(3)}</span></div>
+                  <div>M: <span style={{ color: '#4ECDC4' }}>{biomeParams.moisture.toFixed(3)}</span></div>
+                  <div>Mmask: <span style={{ color: '#95E1D3' }}>{biomeParams.mountainMask.toFixed(3)}</span></div>
+                  <div>R: <span style={{ color: '#DDA0DD' }}>{biomeParams.relief.toFixed(3)}</span></div>
+                  <div>D: <span style={{ color: '#F0E68C' }}>{biomeParams.detail.toFixed(3)}</span></div>
+                  <div>Base: <span style={{ color: '#98FB98' }}>{biomeParams.baseHeight.toFixed(1)}</span></div>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 10 }}>
+                  <div>Warped: <span style={{ color: '#FFA07A' }}>({biomeParams.warpedX.toFixed(0)}, {biomeParams.warpedY.toFixed(0)})</span></div>
+                  <div>Final Height: <span style={{ color: '#90EE90' }}>{biomeParams.finalHeight.toFixed(2)}</span></div>
+                </div>
+              </div>
+            )}
+
+            {/* Terrain controls */}
+            <div style={{ marginBottom: 10 }}>
+              <label>Seed: </label>
+              <input
+                type="text"
+                value={params.seed}
+                onChange={(e) => setParams({ ...params, seed: e.target.value })}
+                style={{ width: 150, marginLeft: 10 }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <label>Base Frequency: </label>
+              <input
+                type="range"
+                min="0.005"
+                max="0.1"
+                step="0.005"
+                value={params.baseFrequency}
+                onChange={(e) => setParams({ ...params, baseFrequency: parseFloat(e.target.value) })}
+                style={{ width: 100, marginLeft: 10 }}
+              />
+              <span style={{ marginLeft: 10 }}>{params.baseFrequency.toFixed(3)}</span>
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <label>Base Amplitude: </label>
+              <input
+                type="range"
+                min="5"
+                max="50"
+                step="1"
+                value={params.baseAmplitude}
+                onChange={(e) => setParams({ ...params, baseAmplitude: parseInt(e.target.value) })}
+                style={{ width: 100, marginLeft: 10 }}
+              />
+              <span style={{ marginLeft: 10 }}>{params.baseAmplitude}</span>
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <label>Detail Frequency: </label>
+              <input
+                type="range"
+                min="0.05"
+                max="0.3"
+                step="0.01"
+                value={params.detailFrequency}
+                onChange={(e) => setParams({ ...params, detailFrequency: parseFloat(e.target.value) })}
+                style={{ width: 100, marginLeft: 10 }}
+              />
+              <span style={{ marginLeft: 10 }}>{params.detailFrequency.toFixed(2)}</span>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label>Detail Amplitude: </label>
+              <input
+                type="range"
+                min="1"
+                max="10"
+                step="0.5"
+                value={params.detailAmplitude}
+                onChange={(e) => setParams({ ...params, detailAmplitude: parseFloat(e.target.value) })}
+                style={{ width: 100, marginLeft: 10 }}
+              />
+              <span style={{ marginLeft: 10 }}>{params.detailAmplitude}</span>
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <label>Wave Strength: </label>
+              <input
+                type="range"
+                min="0.0"
+                max="0.3"
+                step="0.02"
+                value={waveStrength}
+                onChange={(e) => setWaveStrength(parseFloat(e.target.value))}
+                style={{ width: 100, marginLeft: 10 }}
+              />
+              <span style={{ marginLeft: 10 }}>
+                {waveStrength.toFixed(2)}
+              </span>
+            </div>
+
+            <div style={{ marginBottom: 0 }}>
+              <label>Water Opacity: </label>
+              <input
+                type="range"
+                min="0.5"
+                max="1.0"
+                step="0.05"
+                value={waterOpacity}
+                onChange={(e) => setWaterOpacity(parseFloat(e.target.value))}
+                style={{ width: 100, marginLeft: 10 }}
+              />
+              <span style={{ marginLeft: 10 }}>
+                {waterOpacity.toFixed(2)}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

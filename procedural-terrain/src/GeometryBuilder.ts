@@ -224,7 +224,7 @@ export class GeometryBuilder {
     // Split this branch into multiple small beams with slight variation
     const [fx, fy, fz] = from;
     const [txInitial, tyInitial, tzInitial] = to;
-    const segmentCount = Math.max(1, Math.floor(length));
+    const segmentCount = Math.max(1, Math.floor(length * 0.6)); // Fewer segments = longer units
     const baseStepX = (txInitial - fx) / segmentCount;
     const baseStepY = (tyInitial - fy) / segmentCount;
     const baseStepZ = (tzInitial - fz) / segmentCount;
@@ -263,7 +263,7 @@ export class GeometryBuilder {
       // Pull horizontal drift slightly back toward the ideal straight path to avoid one-sided bias
       const idealX = fx + baseStepX * (i + 1);
       const idealZ = fz + baseStepZ * (i + 1);
-      const biasDamp = 0.6 * (0.5 + 0.5 * variationDepthFactor); // more damping near trunk
+      const biasDamp = 0.15 + 0.5 * variationDepthFactor; // less damping near tips for more spread
       nx = idealX + (nx - idealX) * biasDamp;
       nz = idealZ + (nz - idealZ) * biasDamp;
 
@@ -278,7 +278,7 @@ export class GeometryBuilder {
       const horizMag = Math.sqrt(hx * hx + hz * hz) || 0.00001;
       // Local cone cap based on depth (match child branch cap below)
       const maxAngleNearTrunk = 0.55; // ~31.5°
-      const maxAngleNearLeaves = 0.5;  // ~28.6° (more spread near top)
+      const maxAngleNearLeaves = 0.8;  // ~45.8° (much more spread near top)
       const depthRatio = depth / Math.max(1, initialDepth);
       const localAngleCap = maxAngleNearLeaves + (maxAngleNearTrunk - maxAngleNearLeaves) * depthRatio;
       const allowedHoriz = Math.tan(localAngleCap) * Math.max(hy, 0.00001);
@@ -306,14 +306,17 @@ export class GeometryBuilder {
       cz = nz;
     }
 
-    // Place a leaf cluster at the end of terminal branches
+    // Place a leaf cluster at the end of terminal branches (probabilistic to reduce count)
     if (depth === 1 && leafSize !== undefined && leafColor !== undefined) {
       const leafSeed = seed * 917 + Math.floor(cx * 17 + cy * 23 + cz * 31);
-      this.addLeafCluster([cx, cy, cz], [lastDirX, lastDirY, lastDirZ], leafSize, leafColor, leafSeed);
+      const presenceChance = 0.6; // 60% chance to create a leaf on a twig
+      if (this.seededRandom(leafSeed + 999) < presenceChance) {
+        this.addLeafCluster([cx, cy, cz], [lastDirX, lastDirY, lastDirZ], leafSize, leafColor, leafSeed);
+      }
     }
 
     if (depth > 1) {
-      // Generate child branches
+      // Generate child branches (more spread, fewer but clearer)
       const numBranches = depth > 2 ? 3 : 2;
       const tx = cx, ty = cy, tz = cz; // start children from actual end of jittered branch
 
@@ -326,11 +329,11 @@ export class GeometryBuilder {
 
         // Branch parameters
         const depthRatio = depth / Math.max(1, initialDepth);
-        const maxAngleNearTrunk = 0.55; // ~31.5°
-        const maxAngleNearLeaves = 0.5;  // ~28.6° (more spread near top)
+        const maxAngleNearTrunk = 0.65; // ~37.2°
+        const maxAngleNearLeaves = 0.95;  // ~54.4° (much more spread near top)
         const maxOffVertical = maxAngleNearLeaves + (maxAngleNearTrunk - maxAngleNearLeaves) * depthRatio;
 
-        const angleJitter = (rnd1 - 0.5) * 2 * 0.4; // more spread
+        const angleJitter = (rnd1 - 0.5) * 2 * 0.55; // significantly more spread
         let branchAngle = angle + angleJitter;
         if (branchAngle > maxOffVertical) branchAngle = maxOffVertical;
         if (branchAngle < -maxOffVertical) branchAngle = -maxOffVertical;
@@ -338,7 +341,7 @@ export class GeometryBuilder {
         const branchLength = length * (0.6 + rnd2 * 0.3);
         // Distribute yaw evenly among siblings with small jitter to avoid directional bias
         const baseYaw = (2 * Math.PI * i) / numBranches;
-        const yawJitter = (rnd3 - 0.5) * Math.PI * 0.3;
+        const yawJitter = (rnd3 - 0.5) * Math.PI * 0.2; // keep yaw jitter moderate to avoid clumping
         const branchTilt = baseYaw + yawJitter;
 
         // Calculate branch end position
@@ -392,62 +395,30 @@ export class GeometryBuilder {
     const uy = rz * dx - rx * dz;
     const uz = rx * dy - ry * dx;
 
-    // Helper for jitter
+    // Helper for jitter (kept small to avoid directional bias)
     const rand = (i: number) => this.seededRandom(seed + i) - 0.5;
     const jitter = (scale: number, i: number) => (rand(i) * 2) * scale;
 
+    // Minimal leaf cluster - central plus two optional offsets
     // Central large leaf
     this.addOrientedBox([cx, cy, cz], [dx, dy, dz], size * 2.2, color);
 
-    // Ring around (right/left/up/down offsets)
-    const ringOffset = size * 0.7;
-    const ringScale = size * 2.0;
-    const offsets: [number, number, number][] = [
-      [rx, ry, rz], [-rx, -ry, -rz],
-      [ux, uy, uz], [-ux, -uy, -uz],
-    ];
-    for (let i = 0; i < offsets.length; i++) {
-      const [ox, oy, oz] = offsets[i];
-      const px = cx + ox * ringOffset + jitter(size * 0.08, i) + dx * jitter(size * 0.05, i + 50);
-      const py = cy + oy * ringOffset + jitter(size * 0.08, i + 10) + dy * jitter(size * 0.05, i + 60);
-      const pz = cz + oz * ringOffset + jitter(size * 0.08, i + 20) + dz * jitter(size * 0.05, i + 70);
-      this.addOrientedBox([px, py, pz], [dx, dy, dz], ringScale, color);
-    }
-
-    // Diagonal fillers
-    const diagOffset = size * 0.6;
-    const diagScale = size * 1.6;
-    const diags: [number, number, number][] = [
-      [rx + ux, ry + uy, rz + uz],
-      [rx - ux, ry - uy, rz - uz],
-      [-rx + ux, -ry + uy, -rz + uz],
-      [-rx - ux, -ry - uy, -rz - uz],
-    ];
-    for (let i = 0; i < diags.length; i++) {
-      let [ox, oy, oz] = diags[i];
-      const oLen = Math.sqrt(ox * ox + oy * oy + oz * oz) || 1;
-      ox /= oLen; oy /= oLen; oz /= oLen;
-      const px = cx + ox * diagOffset + dx * jitter(size * 0.05, i + 100);
-      const py = cy + oy * diagOffset + dy * jitter(size * 0.05, i + 110);
-      const pz = cz + oz * diagOffset + dz * jitter(size * 0.05, i + 120);
-      // Slightly tilt axis toward offset for variety
-      const ax = dx * 0.85 + ox * 0.15;
-      const ay = dy * 0.85 + oy * 0.15;
-      const az = dz * 0.85 + oz * 0.15;
-      this.addOrientedBox([px, py, pz], [ax, ay, az], diagScale, color);
-    }
-
-    // Forward/back fillers to add depth
-    const fwdOffset = size * 0.45;
-    const fwdScale = size * 1.4;
-    for (let s of [-1, 1]) {
-      const px = cx + dx * fwdOffset * s + jitter(size * 0.04, 200 + (s > 0 ? 1 : 0));
-      const py = cy + dy * fwdOffset * s + jitter(size * 0.04, 210 + (s > 0 ? 1 : 0));
-      const pz = cz + dz * fwdOffset * s + jitter(size * 0.04, 220 + (s > 0 ? 1 : 0));
-      const ax = dx * (s > 0 ? 1 : 1);
-      const ay = dy * (s > 0 ? 1 : 1);
-      const az = dz * (s > 0 ? 1 : 1);
-      this.addOrientedBox([px, py, pz], [ax, ay, az], fwdScale, color);
+    // Only 2 optional offset leaves to reduce total count
+    const options = [[rx, ry, rz], [ux, uy, uz]] as [number, number, number][];
+    const place = (dir: [number, number, number], scale: number, off: number, jbase: number) => {
+      const [ox, oy, oz] = dir;
+      const px = cx + ox * off + dx * jitter(size * 0.02, jbase + 1);
+      const py = cy + oy * off + dy * jitter(size * 0.02, jbase + 2);
+      const pz = cz + oz * off + dz * jitter(size * 0.02, jbase + 3);
+      this.addOrientedBox([px, py, pz], [dx, dy, dz], scale, color);
+    };
+    for (let i = 0; i < options.length; i++) {
+      // 50% chance for each optional offset leaf
+      if (this.seededRandom(seed + 500 + i) < 0.5) continue;
+      const dir = options[i];
+      const scale = i === 0 ? size * 1.8 : size * 1.7; // wide vs tall
+      const off = i === 0 ? size * 1.2 : size * 1.1;
+      place(dir as [number, number, number], scale, off, 400 + i * 20);
     }
   }
 
@@ -481,10 +452,10 @@ export class GeometryBuilder {
     const uy = rz * dx - rx * dz;
     const uz = rx * dy - ry * dx;
 
-    // Half-sizes: make leaves much wider and flatter (billboard-like canopy)
-    const halfForward = size * 0.15; // thin along axis
-    const halfRight = size * 1.1;    // very wide horizontally
-    const halfUp = size * 0.8;       // tall vertically
+    // Half-sizes: make leaves close to a cube, slightly wider than tall
+    const halfForward = size * 0.45;
+    const halfRight = size * 0.85;
+    const halfUp = size * 0.75;
 
     // Precompute scaled axes
     const fX = dx * halfForward, fY = dy * halfForward, fZ = dz * halfForward;
