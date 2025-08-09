@@ -327,4 +327,9 @@ export class BiomeGenerator {
     // For debugging - return the last generated params
     return this.generateBiomeParams(0, 0);
   }
+
+  public getBiomeWeights(T: number, M: number): number[] {
+    const sigma = 0.2; // Use fixed sigma for vegetation
+    return this.rbfSoftmax(T, M, sigma);
+  }
 }

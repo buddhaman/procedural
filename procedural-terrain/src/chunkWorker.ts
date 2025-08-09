@@ -3,6 +3,7 @@
 import { ChunkParams, WorkerResult, CHUNK_SIZE, CHUNK_WORLD_SIZE, WATER_LEVEL } from './types';
 import { GeometryBuilder } from './GeometryBuilder';
 import { BiomeGenerator, BiomeParams } from './BiomeGenerator';
+import { VegetationSystem } from './VegetationSystem';
 
 function lerp(a: number, b: number, t: number): number { return a + (b - a) * t; }
 function saturate(x: number): number { return Math.min(1, Math.max(0, x)); }
@@ -116,9 +117,47 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
     }
   }
 
-  // Add vegetation using biome-based placement
+  // Add vegetation using new multi-species system
   const vegetationBuilder = new GeometryBuilder();
-  addVegetation(vegetationBuilder, heightGrid, biomeParamsGrid, chunkSize, worldScale, worldOffsetX, worldOffsetZ, biomeGenerator);
+  const vegetationSystem = new VegetationSystem(seed);
+  
+  // Create biome params lookup function
+  const getBiomeParams = (x: number, y: number) => {
+    const params = biomeGenerator.generateBiomeParams(x, y);
+    // Get RBF weights for this location
+    const weights = biomeGenerator.getBiomeWeights(params.temperature, params.moisture);
+    return { params, weights };
+  };
+  
+  // Place trees using priority Poisson system
+  const trees = vegetationSystem.placeTrees(chunkX, chunkZ, chunkSize, worldScale, getBiomeParams);
+  
+  // Add trees to geometry
+  for (const tree of trees) {
+    // Convert world coordinates to local chunk coordinates
+    const localX = tree.x - worldOffsetX;
+    const localZ = tree.z - worldOffsetZ;
+    
+    if (tree.useLeaves && tree.leafSize > 0) {
+      vegetationBuilder.addTreeWithLeaves(
+        localX, tree.y, localZ,
+        tree.size,
+        tree.tilt,
+        4, // depth
+        Math.floor(tree.x * 1000 + tree.z * 1000) % 10000, // seed from position
+        tree.leafSize,
+        tree.leafColor
+      );
+    } else {
+      vegetationBuilder.addTree(
+        localX, tree.y, localZ,
+        tree.size,
+        tree.tilt,
+        4, // depth
+        Math.floor(tree.x * 1000 + tree.z * 1000) % 10000 // seed from position
+      );
+    }
+  }
   
   // Get vegetation geometry
   const vegGeometry = vegetationBuilder.getGeometry();
@@ -169,124 +208,6 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
   };
 }
 
-function addVegetation(
-  builder: GeometryBuilder,
-  heightGrid: number[][],
-  biomeParamsGrid: BiomeParams[][],
-  chunkSize: number,
-  worldScale: number,
-  worldOffsetX: number,
-  worldOffsetZ: number,
-  biomeGenerator: BiomeGenerator
-) {
-  // Sample vegetation at lower resolution to avoid too many trees
-  const vegSampleRate = 8; // Every 8th vertex
-  
-  for (let z = 0; z < chunkSize; z += vegSampleRate) {
-    for (let x = 0; x < chunkSize; x += vegSampleRate) {
-      if (x >= chunkSize || z >= chunkSize) continue;
-      
-      const worldX = worldOffsetX + x * worldScale;
-      const worldZ = worldOffsetZ + z * worldScale;
-      const height = heightGrid[z][x];
-      const biomeParams = biomeParamsGrid[z][x];
-      
-      // Only place vegetation above water level
-      if (height <= WATER_LEVEL + 1) continue;
-      
-      // Get biome name for vegetation type
-      const biomeName = biomeGenerator.getBiomeName(biomeParams);
-      
-      // Biome-specific vegetation placement
-      const vegetationSeed = Math.floor((worldX * 1000 + worldZ * 1000) % 10000);
-      const vegRandom = (Math.sin(vegetationSeed) * 10000) % 1;
-      
-      // Different vegetation rules per biome - CONSISTENT TREE SIZES
-      let treeDensity = 0;
-      let bushDensity = 0;
-      const baseTreeHeight = 4; // Fixed base height for all trees
-      let treeColor: [number, number, number] = [0.4, 0.2, 0.1];
-      let leafColor: [number, number, number] = [0.2, 0.5, 0.1];
-      let leafSize = 0.45; // default leaf size (world units)
-      
-      switch (biomeName) {
-        case 'forest':
-          treeDensity = 0.4;
-          bushDensity = 0.2;
-          treeColor = [0.3, 0.15, 0.05];
-          leafColor = [0.1, 0.4, 0.1];
-          leafSize = 0.55;
-          break;
-          
-        case 'plains':
-          treeDensity = 0.05;
-          bushDensity = 0.15;
-          leafColor = [0.2, 0.6, 0.1];
-          leafSize = 0.45;
-          break;
-          
-        case 'desert':
-          treeDensity = 0.01;
-          bushDensity = 0.05;
-          leafColor = [0.4, 0.3, 0.1]; // Cactus-like
-          leafSize = 0.35;
-          break;
-          
-        case 'mountains':
-          treeDensity = 0.1;
-          bushDensity = 0.05;
-          leafColor = [0.2, 0.4, 0.3]; // Hardy mountain trees
-          leafSize = 0.4;
-          break;
-          
-        case 'tundra':
-          treeDensity = 0.02;
-          bushDensity = 0.03;
-          leafColor = [0.3, 0.4, 0.3]; // Sparse, hardy vegetation
-          leafSize = 0.35;
-          break;
-          
-        default: // ocean
-          continue; // No vegetation in ocean
-      }
-      
-      // Place trees - CONSISTENT SIZE
-      if (vegRandom < treeDensity) {
-        const treeSeed = Math.floor((worldX * 1000 + worldZ * 1000) % 10000);
-        
-        builder.addTreeWithLeaves(
-          x * worldScale,
-          height,
-          z * worldScale,
-          baseTreeHeight, // Same height for all trees!
-          (treeSeed % 1000) / 1000 * Math.PI * 2,
-          4, // Fractal depth
-          treeSeed,
-          leafSize,
-          leafColor
-        );
-      }
-      // Place bushes where no trees
-      else if (vegRandom < treeDensity + bushDensity) {
-        const bushHeight = 1.0; // Fixed bush height
-        const bushColor: [number, number, number] = [
-          leafColor[0] * 0.8,
-          leafColor[1] * 0.8,
-          leafColor[2] * 0.8
-        ];
-        
-        builder.addBeam(
-          [x * worldScale, height, z * worldScale],
-          [x * worldScale, height + bushHeight, z * worldScale],
-          0.3,
-          0.2,
-          bushColor,
-          6
-        );
-      }
-    }
-  }
-}
 
 function addFlatTriangle(
   positions: Float32Array,

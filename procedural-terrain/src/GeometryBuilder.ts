@@ -287,9 +287,10 @@ export class GeometryBuilder {
       cz = nz;
     }
 
-    // Place a leaf at the end of terminal branches
+    // Place a leaf cluster at the end of terminal branches
     if (depth === 1 && leafSize !== undefined && leafColor !== undefined) {
-      this.addOrientedBox([cx, cy, cz], [lastDirX, lastDirY, lastDirZ], leafSize, leafColor);
+      const leafSeed = seed * 917 + Math.floor(cx * 17 + cy * 23 + cz * 31);
+      this.addLeafCluster([cx, cy, cz], [lastDirX, lastDirY, lastDirZ], leafSize, leafColor, leafSeed);
     }
 
     if (depth > 1) {
@@ -354,6 +355,92 @@ export class GeometryBuilder {
     }
   }
 
+  // Build a more volumetric leaf cluster using multiple oriented boxes
+  private addLeafCluster(
+    center: [number, number, number],
+    axisDir: [number, number, number],
+    size: number,
+    color: [number, number, number],
+    seed: number
+  ) {
+    const [cx, cy, cz] = center;
+    let [dx, dy, dz] = axisDir;
+    const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+    dx /= len; dy /= len; dz /= len;
+
+    // Basis vectors
+    let upX = 0, upY = 1, upZ = 0;
+    if (Math.abs(dy) > 0.95) { upX = 1; upY = 0; upZ = 0; }
+    // right = dir x up
+    let rx = dy * upZ - dz * upY;
+    let ry = dz * upX - dx * upZ;
+    let rz = dx * upY - dy * upX;
+    const rlen = Math.sqrt(rx * rx + ry * ry + rz * rz) || 1;
+    rx /= rlen; ry /= rlen; rz /= rlen;
+    // true up = right x dir
+    const ux = ry * dz - rz * dy;
+    const uy = rz * dx - rx * dz;
+    const uz = rx * dy - ry * dx;
+
+    // Helper for jitter
+    const rand = (i: number) => this.seededRandom(seed + i) - 0.5;
+    const jitter = (scale: number, i: number) => (rand(i) * 2) * scale;
+
+    // Central large leaf
+    this.addOrientedBox([cx, cy, cz], [dx, dy, dz], size * 1.6, color);
+
+    // Ring around (right/left/up/down offsets)
+    const ringOffset = size * 0.45;
+    const ringScale = size * 1.2;
+    const offsets: [number, number, number][] = [
+      [rx, ry, rz], [-rx, -ry, -rz],
+      [ux, uy, uz], [-ux, -uy, -uz],
+    ];
+    for (let i = 0; i < offsets.length; i++) {
+      const [ox, oy, oz] = offsets[i];
+      const px = cx + ox * ringOffset + jitter(size * 0.08, i) + dx * jitter(size * 0.05, i + 50);
+      const py = cy + oy * ringOffset + jitter(size * 0.08, i + 10) + dy * jitter(size * 0.05, i + 60);
+      const pz = cz + oz * ringOffset + jitter(size * 0.08, i + 20) + dz * jitter(size * 0.05, i + 70);
+      this.addOrientedBox([px, py, pz], [dx, dy, dz], ringScale, color);
+    }
+
+    // Diagonal fillers
+    const diagOffset = size * 0.35;
+    const diagScale = size * 1.0;
+    const diags: [number, number, number][] = [
+      [rx + ux, ry + uy, rz + uz],
+      [rx - ux, ry - uy, rz - uz],
+      [-rx + ux, -ry + uy, -rz + uz],
+      [-rx - ux, -ry - uy, -rz - uz],
+    ];
+    for (let i = 0; i < diags.length; i++) {
+      let [ox, oy, oz] = diags[i];
+      const oLen = Math.sqrt(ox * ox + oy * oy + oz * oz) || 1;
+      ox /= oLen; oy /= oLen; oz /= oLen;
+      const px = cx + ox * diagOffset + dx * jitter(size * 0.05, i + 100);
+      const py = cy + oy * diagOffset + dy * jitter(size * 0.05, i + 110);
+      const pz = cz + oz * diagOffset + dz * jitter(size * 0.05, i + 120);
+      // Slightly tilt axis toward offset for variety
+      const ax = dx * 0.85 + ox * 0.15;
+      const ay = dy * 0.85 + oy * 0.15;
+      const az = dz * 0.85 + oz * 0.15;
+      this.addOrientedBox([px, py, pz], [ax, ay, az], diagScale, color);
+    }
+
+    // Forward/back fillers to add depth
+    const fwdOffset = size * 0.28;
+    const fwdScale = size * 0.9;
+    for (let s of [-1, 1]) {
+      const px = cx + dx * fwdOffset * s + jitter(size * 0.04, 200 + (s > 0 ? 1 : 0));
+      const py = cy + dy * fwdOffset * s + jitter(size * 0.04, 210 + (s > 0 ? 1 : 0));
+      const pz = cz + dz * fwdOffset * s + jitter(size * 0.04, 220 + (s > 0 ? 1 : 0));
+      const ax = dx * (s > 0 ? 1 : 1);
+      const ay = dy * (s > 0 ? 1 : 1);
+      const az = dz * (s > 0 ? 1 : 1);
+      this.addOrientedBox([px, py, pz], [ax, ay, az], fwdScale, color);
+    }
+  }
+
   // Add an oriented stretched cube (box) centered at position, aligned to axisDir
   private addOrientedBox(
     center: [number, number, number],
@@ -384,10 +471,10 @@ export class GeometryBuilder {
     const uy = rz * dx - rx * dz;
     const uz = rx * dy - ry * dx;
 
-    // Half-sizes (stretched along direction)
-    const halfForward = size * 0.8;
-    const halfRight = size * 0.35;
-    const halfUp = size * 0.35;
+    // Half-sizes: make leaves much wider and flatter (billboard-like canopy)
+    const halfForward = size * 0.15; // thin along axis
+    const halfRight = size * 1.1;    // very wide horizontally
+    const halfUp = size * 0.8;       // tall vertically
 
     // Precompute scaled axes
     const fX = dx * halfForward, fY = dy * halfForward, fZ = dz * halfForward;
