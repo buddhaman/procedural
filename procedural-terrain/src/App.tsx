@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { ChunkManager } from './ChunkManager';
@@ -26,12 +26,19 @@ type Params = typeof DEFAULTS;
 
 export default function App() {
   const mountRef = useRef<HTMLDivElement | null>(null);
+  const controlsRef = useRef<PointerLockControls | null>(null);
   const [params, setParams] = useState<Params>({ ...DEFAULTS });
   const [waveStrength, setWaveStrength] = useState(0.1);
   const [waterOpacity, setWaterOpacity] = useState(0.8);
   const [currentBiome, setCurrentBiome] = useState<string>('Unknown');
   const [cameraPosition, setCameraPosition] = useState({ x: 0, y: 0, z: 0 });
   const [biomeParams, setBiomeParams] = useState<any>(null);
+  const [isLocked, setIsLocked] = useState<boolean>(false);
+  const [showOverlay, setShowOverlay] = useState<boolean>(true);
+  const [headingDeg, setHeadingDeg] = useState<number>(0);
+  const [speciesFound, setSpeciesFound] = useState<number>(0);
+  const [journalEntries, setJournalEntries] = useState<string[]>([]);
+  const [isDevOpen, setIsDevOpen] = useState<boolean>(true);
   const chunkManagerRef = useRef<ChunkManager | null>(null);
   const lastBiomeUpdate = useRef<number>(0);
 
@@ -79,6 +86,11 @@ export default function App() {
     // Controls
     const controls = new PointerLockControls(camera, renderer.domElement);
     scene.add(controls.getObject());
+    controlsRef.current = controls;
+    const onLock = () => setIsLocked(true);
+    const onUnlock = () => setIsLocked(false);
+    controls.addEventListener('lock', onLock);
+    controls.addEventListener('unlock', onUnlock);
 
     // Initialize chunk manager
     const chunkManager = new ChunkManager(scene, 4);
@@ -111,6 +123,7 @@ export default function App() {
     const onClick = () => {
       if (!controls.isLocked) {
         controls.lock();
+        setShowOverlay(false);
       }
     };
     renderer.domElement.addEventListener('click', onClick);
@@ -175,6 +188,13 @@ export default function App() {
         // Get detailed biome parameters for debug display
         const detailedParams = chunkManager.getBiomeParamsAt(pos.x, pos.z);
         setBiomeParams(detailedParams);
+
+        // Heading calculation (0° = N, 90° = E)
+        const forward = new THREE.Vector3();
+        camera.getWorldDirection(forward);
+        const radians = Math.atan2(forward.x, forward.z);
+        const degrees = (THREE.MathUtils.radToDeg(radians) + 360) % 360;
+        setHeadingDeg(Math.round(degrees));
       }
 
       renderer.render(scene, camera);
@@ -189,6 +209,8 @@ export default function App() {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('resize', onResize);
       renderer.domElement.removeEventListener('click', onClick);
+      controls.removeEventListener('lock', onLock);
+      controls.removeEventListener('unlock', onUnlock);
       
       if (chunkManagerRef.current) {
         chunkManagerRef.current.dispose();
@@ -213,180 +235,250 @@ export default function App() {
     }
   }, [waterOpacity]);
 
+  const directionText = useMemo(() => {
+    const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+    const idx = Math.round(headingDeg / 45) % 8;
+    return `${dirs[idx]} ${headingDeg}°`;
+  }, [headingDeg]);
+
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
       <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
-      
-      {/* Controls panel */}
-      <div style={{
-        position: 'absolute',
-        top: 20,
-        left: 20,
-        background: 'rgba(0, 0, 0, 0.7)',
-        color: 'white',
-        padding: '20px',
-        borderRadius: '8px',
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        maxWidth: '300px',
-      }}>
-        <h3 style={{ margin: '0 0 15px 0' }}>Procedural Terrain</h3>
-        
-        {/* Current biome and position info */}
-        <div style={{ 
-          marginBottom: '15px', 
-          padding: '8px', 
-          background: 'rgba(255, 255, 255, 0.1)', 
-          borderRadius: '4px',
-          fontSize: '11px'
-        }}>
-          <div style={{ color: '#4CAF50', fontWeight: 'bold' }}>
-            Current Biome: {currentBiome.charAt(0).toUpperCase() + currentBiome.slice(1)}
+
+      {/* HUD */}
+      <div className="hud">
+        <div className="title-chip">
+          <h1>Field Guide</h1>
+          <div className="subtitle">Explore and catalog playful creatures</div>
+        </div>
+
+        <div className="stats">
+          <div className="stat-card">
+            <h4>Location</h4>
+            <div className="kv">
+              <div className="k">Biome</div>
+              <div className="v">{currentBiome.charAt(0).toUpperCase() + currentBiome.slice(1)}</div>
+              <div className="k">Position</div>
+              <div className="v">{cameraPosition.x}, {cameraPosition.y}, {cameraPosition.z}</div>
+              <div className="k">Compass</div>
+              <div className="v">
+                <div className="compass">
+                  <span>{directionText}</span>
+                  <div className="rose">
+                    <div className="ticks">
+                      <div className="tick">N</div>
+                      <div className="tick">E</div>
+                      <div className="tick">S</div>
+                      <div className="tick">W</div>
+                    </div>
+                    <div className="needle" />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div style={{ color: '#ccc', marginTop: '2px' }}>
-            Position: {cameraPosition.x}, {cameraPosition.y}, {cameraPosition.z}
+
+          <div className="stat-card">
+            <h4>Discoveries</h4>
+            <div className="kv">
+              <div className="k">Species Found</div>
+              <div className="v">{speciesFound}</div>
+              <div className="k">Journal</div>
+              <div className="v">
+                <span className="pill">{journalEntries.length} entries</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Detailed biome parameters */}
-        {biomeParams && (
-          <div style={{ 
-            marginBottom: '15px', 
-            padding: '8px', 
-            background: 'rgba(0, 100, 200, 0.1)', 
-            borderRadius: '4px',
-            fontSize: '10px',
-            fontFamily: 'monospace'
-          }}>
-            <div style={{ color: '#87CEEB', fontWeight: 'bold', marginBottom: '5px' }}>
-              Biome Parameters (Live Debug):
-            </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px', fontSize: '9px' }}>
-              <div>C: <span style={{ color: '#FFB347' }}>{biomeParams.continentalness.toFixed(3)}</span></div>
-              <div>E: <span style={{ color: '#FFB347' }}>{biomeParams.erosion.toFixed(3)}</span></div>
-              <div>T: <span style={{ color: '#FF6B6B' }}>{biomeParams.temperature.toFixed(3)}</span></div>
-              <div>M: <span style={{ color: '#4ECDC4' }}>{biomeParams.moisture.toFixed(3)}</span></div>
-              <div>Mmask: <span style={{ color: '#95E1D3' }}>{biomeParams.mountainMask.toFixed(3)}</span></div>
-              <div>R: <span style={{ color: '#DDA0DD' }}>{biomeParams.relief.toFixed(3)}</span></div>
-              <div>D: <span style={{ color: '#F0E68C' }}>{biomeParams.detail.toFixed(3)}</span></div>
-              <div>Base: <span style={{ color: '#98FB98' }}>{biomeParams.baseHeight.toFixed(1)}</span></div>
-            </div>
-            
-            <div style={{ marginTop: '5px', fontSize: '9px' }}>
-              <div>Warped: <span style={{ color: '#FFA07A' }}>({biomeParams.warpedX.toFixed(0)}, {biomeParams.warpedY.toFixed(0)})</span></div>
-              <div>Final Height: <span style={{ color: '#90EE90' }}>{biomeParams.finalHeight.toFixed(2)}</span></div>
-            </div>
-            
-            <div style={{ marginTop: '8px', fontSize: '8px', color: '#aaa', lineHeight: '1.2' }}>
-              C=continentalness, E=erosion, T=temperature, M=moisture<br/>
-              Mmask=mountain mask, R=relief, D=detail
+        {isLocked && <div className="reticle" />}
+
+        <div className="hint">
+          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move • <kbd>Space</kbd>/<kbd>Shift</kbd> up/down • <kbd>Q</kbd> sprint</div>
+          <div>Press <kbd>E</kbd> to scan a nearby creature</div>
+        </div>
+
+        <div className="journal">
+          <div className="card">
+            <h3>Field Journal</h3>
+            {journalEntries.length === 0 ? (
+              <div className="entry">No entries yet. Explore new biomes to find creatures.</div>
+            ) : (
+              journalEntries.slice(0, 3).map((e, i) => (
+                <div key={i} className="entry">{e}</div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {showOverlay && (
+          <div className="overlay">
+            <div className="box">
+              <h2>Welcome, Explorer!</h2>
+              <p>Venture across vibrant biomes and build your playful bestiary. Click Start to enter the world.</p>
+              <button
+                className="cta"
+                onClick={() => {
+                  setShowOverlay(false);
+                  controlsRef.current?.lock();
+                }}
+              >Start Exploring</button>
             </div>
           </div>
         )}
-        
-        <div style={{ marginBottom: '10px' }}>
-          <label>Seed: </label>
-          <input
-            type="text"
-            value={params.seed}
-            onChange={(e) => setParams({ ...params, seed: e.target.value })}
-            style={{ width: '150px', marginLeft: '10px' }}
-          />
-        </div>
 
-        <div style={{ marginBottom: '10px' }}>
-          <label>Base Frequency: </label>
-          <input
-            type="range"
-            min="0.005"
-            max="0.1"
-            step="0.005"
-            value={params.baseFrequency}
-            onChange={(e) => setParams({ ...params, baseFrequency: parseFloat(e.target.value) })}
-            style={{ width: '100px', marginLeft: '10px' }}
-          />
-          <span style={{ marginLeft: '10px' }}>{params.baseFrequency.toFixed(3)}</span>
-        </div>
+        {/* Dev controls */}
+        <div className="dev-panel">
+          <button className="dev-toggle" onClick={() => setIsDevOpen((v) => !v)}>
+            <span className="dot" /> {isDevOpen ? 'Hide' : 'Show'} Dev Panel
+          </button>
+          {isDevOpen && (
+            <div className="content">
+              {/* Current biome and position info */}
+              <div style={{ 
+                marginBottom: '12px', 
+                padding: '8px', 
+                background: 'rgba(255, 255, 255, 0.05)', 
+                borderRadius: '8px',
+                fontSize: '11px'
+              }}>
+                <div style={{ color: '#87CEEB', fontWeight: 700 }}>
+                  Biome: {currentBiome}
+                </div>
+                <div style={{ color: '#ccc', marginTop: 4 }}>
+                  Pos: {cameraPosition.x}, {cameraPosition.y}, {cameraPosition.z}
+                </div>
+              </div>
 
-        <div style={{ marginBottom: '10px' }}>
-          <label>Base Amplitude: </label>
-          <input
-            type="range"
-            min="5"
-            max="50"
-            step="1"
-            value={params.baseAmplitude}
-            onChange={(e) => setParams({ ...params, baseAmplitude: parseInt(e.target.value) })}
-            style={{ width: '100px', marginLeft: '10px' }}
-          />
-          <span style={{ marginLeft: '10px' }}>{params.baseAmplitude}</span>
-        </div>
+              {/* Detailed biome parameters */}
+              {biomeParams && (
+                <div style={{ 
+                  marginBottom: '12px', 
+                  padding: '8px', 
+                  background: 'rgba(0, 100, 200, 0.08)', 
+                  borderRadius: '8px',
+                  fontSize: '10px',
+                  fontFamily: 'monospace'
+                }}>
+                  <div style={{ color: '#87CEEB', fontWeight: 700, marginBottom: 6 }}>
+                    Biome Parameters
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 10 }}>
+                    <div>C: <span style={{ color: '#FFB347' }}>{biomeParams.continentalness.toFixed(3)}</span></div>
+                    <div>E: <span style={{ color: '#FFB347' }}>{biomeParams.erosion.toFixed(3)}</span></div>
+                    <div>T: <span style={{ color: '#FF6B6B' }}>{biomeParams.temperature.toFixed(3)}</span></div>
+                    <div>M: <span style={{ color: '#4ECDC4' }}>{biomeParams.moisture.toFixed(3)}</span></div>
+                    <div>Mmask: <span style={{ color: '#95E1D3' }}>{biomeParams.mountainMask.toFixed(3)}</span></div>
+                    <div>R: <span style={{ color: '#DDA0DD' }}>{biomeParams.relief.toFixed(3)}</span></div>
+                    <div>D: <span style={{ color: '#F0E68C' }}>{biomeParams.detail.toFixed(3)}</span></div>
+                    <div>Base: <span style={{ color: '#98FB98' }}>{biomeParams.baseHeight.toFixed(1)}</span></div>
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 10 }}>
+                    <div>Warped: <span style={{ color: '#FFA07A' }}>({biomeParams.warpedX.toFixed(0)}, {biomeParams.warpedY.toFixed(0)})</span></div>
+                    <div>Final Height: <span style={{ color: '#90EE90' }}>{biomeParams.finalHeight.toFixed(2)}</span></div>
+                  </div>
+                </div>
+              )}
 
-        <div style={{ marginBottom: '10px' }}>
-          <label>Detail Frequency: </label>
-          <input
-            type="range"
-            min="0.05"
-            max="0.3"
-            step="0.01"
-            value={params.detailFrequency}
-            onChange={(e) => setParams({ ...params, detailFrequency: parseFloat(e.target.value) })}
-            style={{ width: '100px', marginLeft: '10px' }}
-          />
-          <span style={{ marginLeft: '10px' }}>{params.detailFrequency.toFixed(2)}</span>
-        </div>
+              <div style={{ marginBottom: 10 }}>
+                <label>Seed: </label>
+                <input
+                  type="text"
+                  value={params.seed}
+                  onChange={(e) => setParams({ ...params, seed: e.target.value })}
+                  style={{ width: 150, marginLeft: 10 }}
+                />
+              </div>
 
-        <div style={{ marginBottom: '15px' }}>
-          <label>Detail Amplitude: </label>
-          <input
-            type="range"
-            min="1"
-            max="10"
-            step="0.5"
-            value={params.detailAmplitude}
-            onChange={(e) => setParams({ ...params, detailAmplitude: parseFloat(e.target.value) })}
-            style={{ width: '100px', marginLeft: '10px' }}
-          />
-          <span style={{ marginLeft: '10px' }}>{params.detailAmplitude}</span>
-        </div>
+              <div style={{ marginBottom: 10 }}>
+                <label>Base Frequency: </label>
+                <input
+                  type="range"
+                  min="0.005"
+                  max="0.1"
+                  step="0.005"
+                  value={params.baseFrequency}
+                  onChange={(e) => setParams({ ...params, baseFrequency: parseFloat(e.target.value) })}
+                  style={{ width: 100, marginLeft: 10 }}
+                />
+                <span style={{ marginLeft: 10 }}>{params.baseFrequency.toFixed(3)}</span>
+              </div>
 
-        <div style={{ marginBottom: '10px' }}>
-          <label>Wave Strength: </label>
-          <input
-            type="range"
-            min="0.0"
-            max="0.3"
-            step="0.02"
-            value={waveStrength}
-            onChange={(e) => setWaveStrength(parseFloat(e.target.value))}
-            style={{ width: '100px', marginLeft: '10px' }}
-          />
-          <span style={{ marginLeft: '10px' }}>
-            {waveStrength.toFixed(2)}
-          </span>
-        </div>
+              <div style={{ marginBottom: 10 }}>
+                <label>Base Amplitude: </label>
+                <input
+                  type="range"
+                  min="5"
+                  max="50"
+                  step="1"
+                  value={params.baseAmplitude}
+                  onChange={(e) => setParams({ ...params, baseAmplitude: parseInt(e.target.value) })}
+                  style={{ width: 100, marginLeft: 10 }}
+                />
+                <span style={{ marginLeft: 10 }}>{params.baseAmplitude}</span>
+              </div>
 
-        <div style={{ marginBottom: '15px' }}>
-          <label>Water Opacity: </label>
-          <input
-            type="range"
-            min="0.5"
-            max="1.0"
-            step="0.05"
-            value={waterOpacity}
-            onChange={(e) => setWaterOpacity(parseFloat(e.target.value))}
-            style={{ width: '100px', marginLeft: '10px' }}
-          />
-          <span style={{ marginLeft: '10px' }}>
-            {waterOpacity.toFixed(2)}
-          </span>
-        </div>
+              <div style={{ marginBottom: 10 }}>
+                <label>Detail Frequency: </label>
+                <input
+                  type="range"
+                  min="0.05"
+                  max="0.3"
+                  step="0.01"
+                  value={params.detailFrequency}
+                  onChange={(e) => setParams({ ...params, detailFrequency: parseFloat(e.target.value) })}
+                  style={{ width: 100, marginLeft: 10 }}
+                />
+                <span style={{ marginLeft: 10 }}>{params.detailFrequency.toFixed(2)}</span>
+              </div>
 
-        <div style={{ fontSize: '10px', color: '#ccc', lineHeight: '1.4' }}>
-          <div>WASD: Move | Space/Shift: Up/Down</div>
-          <div>Q: Sprint | Click to lock mouse</div>
-          <div>Flat-shaded water with terrain-based transitions</div>
+              <div style={{ marginBottom: 12 }}>
+                <label>Detail Amplitude: </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  step="0.5"
+                  value={params.detailAmplitude}
+                  onChange={(e) => setParams({ ...params, detailAmplitude: parseFloat(e.target.value) })}
+                  style={{ width: 100, marginLeft: 10 }}
+                />
+                <span style={{ marginLeft: 10 }}>{params.detailAmplitude}</span>
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                <label>Wave Strength: </label>
+                <input
+                  type="range"
+                  min="0.0"
+                  max="0.3"
+                  step="0.02"
+                  value={waveStrength}
+                  onChange={(e) => setWaveStrength(parseFloat(e.target.value))}
+                  style={{ width: 100, marginLeft: 10 }}
+                />
+                <span style={{ marginLeft: 10 }}>
+                  {waveStrength.toFixed(2)}
+                </span>
+              </div>
+
+              <div style={{ marginBottom: 0 }}>
+                <label>Water Opacity: </label>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="1.0"
+                  step="0.05"
+                  value={waterOpacity}
+                  onChange={(e) => setWaterOpacity(parseFloat(e.target.value))}
+                  style={{ width: 100, marginLeft: 10 }}
+                />
+                <span style={{ marginLeft: 10 }}>
+                  {waterOpacity.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

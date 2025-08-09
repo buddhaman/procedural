@@ -285,7 +285,7 @@ export class VegetationSystem {
     return t * t * (3 - 2 * t);
   }
 
-  // Compute vegetation intensity λ(x,y) - SIMPLIFIED FOR DEBUGGING
+  // Compute vegetation intensity λ(x,y) - BIOME BASED BUT SIMPLIFIED
   public computeVegetationIntensity(
     x: number, 
     y: number, 
@@ -301,12 +301,13 @@ export class VegetationSystem {
       densityMax += profile.densityMax * weight;
     }
 
-    // For debugging, return a high intensity for most biomes except ocean
-    if (densityMax > 0.01) {
-      return 0.3; // 30% chance to place trees
-    }
+    // Boost density to make sure we see trees
+    const boostedDensity = Math.min(1, densityMax * 2);
     
-    return 0;
+    // Add some variation but keep it reasonable
+    const variation = 0.8 + 0.4 * Math.sin(x * 0.001) * Math.cos(y * 0.001);
+    
+    return Math.max(0, boostedDensity * variation);
   }
 
   // Priority Poisson placement
@@ -380,17 +381,28 @@ export class VegetationSystem {
           const tilt = (this.H01(h << 19) - 0.5) * 0.2; // Max 0.1 radian tilt
           const hueJitter = (this.H01(h << 31) - 0.5) * 0.1;
           
-          // Apply hue jitter to colors
+          // Biome-based color modulation
+          const { temperature: T, moisture: M, finalHeight: altitude } = params;
+          
+          // Temperature affects leaf colors: cold = more blue/cyan, hot = more yellow/red
+          const tempMod = (T - 0.5) * 0.3; // -0.15 to +0.15
+          // Moisture affects green intensity: wet = more green, dry = less green
+          const moistMod = (M - 0.5) * 0.2; // -0.1 to +0.1
+          // Altitude affects colors: high = more blue/purple, low = more green/yellow
+          const altMod = Math.min(0.2, altitude / 200) * 0.3; // 0 to 0.3
+          
+          // Apply climate modulation to trunk colors
           const color: [number, number, number] = [
-            Math.max(0, Math.min(1, treeData.baseColorRGB[0] + hueJitter)),
+            Math.max(0, Math.min(1, treeData.baseColorRGB[0] + hueJitter + tempMod * 0.5)),
             Math.max(0, Math.min(1, treeData.baseColorRGB[1] + hueJitter)),
-            Math.max(0, Math.min(1, treeData.baseColorRGB[2] + hueJitter))
+            Math.max(0, Math.min(1, treeData.baseColorRGB[2] + hueJitter - tempMod * 0.3))
           ];
           
+          // Apply stronger climate modulation to leaf colors for more dramatic variation
           const leafColor: [number, number, number] = [
-            Math.max(0, Math.min(1, treeData.leafColorRGB[0] + hueJitter)),
-            Math.max(0, Math.min(1, treeData.leafColorRGB[1] + hueJitter)),
-            Math.max(0, Math.min(1, treeData.leafColorRGB[2] + hueJitter))
+            Math.max(0, Math.min(1, treeData.leafColorRGB[0] + hueJitter + tempMod - moistMod + altMod)),
+            Math.max(0, Math.min(1, treeData.leafColorRGB[1] + hueJitter + moistMod - altMod * 0.5)),
+            Math.max(0, Math.min(1, treeData.leafColorRGB[2] + hueJitter - tempMod + altMod))
           ];
 
           trees.push({
@@ -437,7 +449,7 @@ export class VegetationSystem {
 
     // Normalize and select
     const total = Object.values(speciesProbs).reduce((sum, prob) => sum + prob, 0);
-    if (total <= 0) return null;
+    if (total <= 0) return 'oak'; // fallback
 
     const rand = this.H01(hash);
     let cumulative = 0;
@@ -449,6 +461,6 @@ export class VegetationSystem {
       }
     }
 
-    return Object.keys(speciesProbs)[0] || null;
+    return 'oak'; // fallback
   }
 }
