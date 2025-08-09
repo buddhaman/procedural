@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { ChunkManager } from './ChunkManager';
 import { CreatureSystem } from './CreatureSystem';
+import { BirdSystem } from './BirdSystem';
 import { CHUNK_SIZE } from './types';
 import './styles.css';
 
@@ -43,8 +44,11 @@ export default function App() {
   const [speciesFound, setSpeciesFound] = useState<number>(0);
   const [journalEntries, setJournalEntries] = useState<string[]>([]);
   const [creatureCount, setCreatureCount] = useState<number>(0);
+  const [birdCount, setBirdCount] = useState<number>(0);
+  const [flockCount, setFlockCount] = useState<number>(0);
   const chunkManagerRef = useRef<ChunkManager | null>(null);
   const creatureSystemRef = useRef<CreatureSystem | null>(null);
+  const birdSystemRef = useRef<BirdSystem | null>(null);
   const lastBiomeUpdate = useRef<number>(0);
   const [fps, setFps] = useState<number>(0);
   const [avgFrameMs, setAvgFrameMs] = useState<number>(0);
@@ -132,6 +136,11 @@ export default function App() {
     // Initialize creature system
     const creatureSystem = new CreatureSystem(scene, chunkManager);
     creatureSystemRef.current = creatureSystem;
+    
+    // Initialize bird system - using a deterministic seed based on terrain seed
+    const birdSeed = params.seed.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const birdSystem = new BirdSystem(scene, chunkManager, birdSeed);
+    birdSystemRef.current = birdSystem;
     
     // Set initial water material values
     if (chunkManager.waterMaterial) {
@@ -306,10 +315,27 @@ export default function App() {
         z: camera.position.z
       });
       
-      // Update creature count more frequently (every frame)
+      // Update birds
+      birdSystem.update({
+        x: camera.position.x,
+        y: camera.position.y,
+        z: camera.position.z
+      });
+      
+      // Update creature and bird counts more frequently (every frame)
       const currentCreatureCount = creatureSystem.getCreatureCount();
       if (currentCreatureCount !== creatureCount) {
         setCreatureCount(currentCreatureCount);
+      }
+      
+      const currentBirdCount = birdSystem.getBirdCount();
+      if (currentBirdCount !== birdCount) {
+        setBirdCount(currentBirdCount);
+      }
+      
+      const currentFlockCount = birdSystem.getFlockCount();
+      if (currentFlockCount !== flockCount) {
+        setFlockCount(currentFlockCount);
       }
 
       // Update UI with current biome (throttled to every 500ms)
@@ -361,6 +387,11 @@ export default function App() {
       if (creatureSystemRef.current) {
         creatureSystemRef.current.dispose();
         creatureSystemRef.current = null;
+      }
+      
+      if (birdSystemRef.current) {
+        birdSystemRef.current.dispose();
+        birdSystemRef.current = null;
       }
       
       container.removeChild(renderer.domElement);
@@ -441,6 +472,10 @@ export default function App() {
               <div className="k">Creatures Nearby</div>
               <div className="v">
                 <span className="pill">{creatureCount}</span>
+              </div>
+              <div className="k">Birds Flying</div>
+              <div className="v">
+                <span className="pill">{birdCount} ({flockCount} flocks)</span>
               </div>
               <div className="k">Journal</div>
               <div className="v">
@@ -571,6 +606,9 @@ export default function App() {
               }}>
                 <div style={{ color: '#90EE90', fontWeight: 700, marginBottom: 6 }}>
                   Active Creatures: {creatureCount}
+                </div>
+                <div style={{ color: '#87CEEB', fontWeight: 700, marginBottom: 6 }}>
+                  Flying Birds: {birdCount} ({flockCount} flocks)
                 </div>
                 <div style={{ color: '#ccc' }}>
                   Spawning dynamically as you explore
