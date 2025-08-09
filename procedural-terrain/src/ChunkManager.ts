@@ -114,11 +114,11 @@ export class ChunkManager {
     if (chunk.terrainMesh) {
       chunk.terrainMesh.geometry.dispose();
       chunk.terrainMesh.geometry = terrainGeometry;
-      chunk.terrainMesh.castShadow = false;  // Disable for now to focus on creature shadows
+      chunk.terrainMesh.castShadow = true;  // Re-enable terrain shadows
     } else {
       chunk.terrainMesh = new THREE.Mesh(terrainGeometry, this.terrainMaterial);
       chunk.terrainMesh.position.set(chunk.worldX, 0, chunk.worldZ);
-      chunk.terrainMesh.castShadow = false;  // Disable terrain self-shadows for now
+      chunk.terrainMesh.castShadow = true;  // Enable terrain self-shadows
       chunk.terrainMesh.receiveShadow = true;
       this.scene.add(chunk.terrainMesh);
     }
@@ -210,41 +210,53 @@ export class ChunkManager {
   }
 
   public getHeightAt(worldX: number, worldZ: number): number {
-    // Sample authoritative heights from the owning chunk (bilinear)
+    // Prefer authoritative heightfield from the owning chunk (bilinear)
     const chunkX = Math.floor(worldX / CHUNK_WORLD_SIZE);
     const chunkZ = Math.floor(worldZ / CHUNK_WORLD_SIZE);
     const key = `${chunkX},${chunkZ}`;
     const chunk = this.chunks.get(key);
-    if (!chunk || !chunk.heights) return -Infinity;
 
-    const localX = worldX - chunk.worldX;
-    const localZ = worldZ - chunk.worldZ;
-    const scale = CHUNK_WORLD_SIZE / (CHUNK_SIZE - 1);
-    const gx = localX / scale;
-    const gz = localZ / scale;
+    if (chunk && chunk.heights) {
+      const localX = worldX - chunk.worldX;
+      const localZ = worldZ - chunk.worldZ;
+      const scale = CHUNK_WORLD_SIZE / (CHUNK_SIZE - 1);
+      const gx = localX / scale;
+      const gz = localZ / scale;
 
-    const x0 = Math.floor(gx);
-    const z0 = Math.floor(gz);
-    if (x0 < 0 || x0 >= CHUNK_SIZE - 1 || z0 < 0 || z0 >= CHUNK_SIZE - 1) return -Infinity;
+      const x0 = Math.floor(gx);
+      const z0 = Math.floor(gz);
 
-    const x1 = x0 + 1;
-    const z1 = z0 + 1;
-    const tx = gx - x0;
-    const tz = gz - z0;
+      if (x0 >= 0 && x0 < CHUNK_SIZE - 1 && z0 >= 0 && z0 < CHUNK_SIZE - 1) {
+        const x1 = x0 + 1;
+        const z1 = z0 + 1;
+        const tx = gx - x0;
+        const tz = gz - z0;
 
-    const i00 = z0 * CHUNK_SIZE + x0;
-    const i10 = z0 * CHUNK_SIZE + x1;
-    const i01 = z1 * CHUNK_SIZE + x0;
-    const i11 = z1 * CHUNK_SIZE + x1;
+        const i00 = z0 * CHUNK_SIZE + x0;
+        const i10 = z0 * CHUNK_SIZE + x1;
+        const i01 = z1 * CHUNK_SIZE + x0;
+        const i11 = z1 * CHUNK_SIZE + x1;
 
-    const h00 = chunk.heights[i00];
-    const h10 = chunk.heights[i10];
-    const h01 = chunk.heights[i01];
-    const h11 = chunk.heights[i11];
+        const h00 = chunk.heights[i00];
+        const h10 = chunk.heights[i10];
+        const h01 = chunk.heights[i01];
+        const h11 = chunk.heights[i11];
 
-    const y0 = h00 * (1 - tx) + h10 * tx;
-    const y1 = h01 * (1 - tx) + h11 * tx;
-    return y0 * (1 - tz) + y1 * tz;
+        const y0 = h00 * (1 - tx) + h10 * tx;
+        const y1 = h01 * (1 - tx) + h11 * tx;
+        return y0 * (1 - tz) + y1 * tz;
+      }
+      // If outside the stored grid, fall back to procedural
+    }
+
+    // Fallback: compute height procedurally so callers always get a finite number
+    if (this.biomeGenerator) {
+      const params = this.biomeGenerator.generateBiomeParams(worldX, worldZ);
+      return params.finalHeight;
+    }
+
+    // Last-resort fallback
+    return WATER_LEVEL;
   }
 
   public getBiomeAt(worldX: number, worldZ: number, terrainParams?: any): string {

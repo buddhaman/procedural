@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Agent, buildCreature, tickAgent, V2, V3 } from './VerletPhysics';
 import { CreatureRenderer } from './CreatureRenderer';
 import { ChunkManager } from './ChunkManager';
-import { CHUNK_WORLD_SIZE, RENDER_DISTANCE } from './types';
+import { CHUNK_WORLD_SIZE, RENDER_DISTANCE, WATER_LEVEL } from './types';
 
 type ChunkId = string; // "x,z" format
 
@@ -141,13 +141,15 @@ export class CreatureSystem {
     let spawned = 0;
     for (let i = 0; i < this.spawnAttemptsPerChunk; i++) {
       if (rng() < this.spawnProb) {
-        // Random position within chunk
         const localX = rng() * CHUNK_WORLD_SIZE;
         const localZ = rng() * CHUNK_WORLD_SIZE;
         const creatureX = worldX + localX;
         const creatureZ = worldZ + localZ;
-        
-        // For now, spawn everywhere to test - we'll fix height checking later
+
+        const h = this.chunkManager.getHeightAt(creatureX, creatureZ);
+        if (!Number.isFinite(h)) continue; // robust against transient invalids
+        if (h <= WATER_LEVEL) continue; // avoid water
+
         const creature = this.createCreatureAt(creatureX, creatureZ);
         this.activeCreatures.push(creature);
         spawned++;

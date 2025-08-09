@@ -83,7 +83,8 @@ export default function App() {
     directionalLight.shadow.camera.right = 200;
     directionalLight.shadow.camera.top = 200;
     directionalLight.shadow.camera.bottom = -200;
-    directionalLight.shadow.bias = -0.0005; // Fix shadow acne
+    directionalLight.shadow.bias = -0.002; // More aggressive shadow acne fix
+    directionalLight.shadow.normalBias = 0.05; // Additional bias for terrain surfaces
     scene.add(directionalLight);
 
     // Soft ambient + sky/ground fill for colorful look
