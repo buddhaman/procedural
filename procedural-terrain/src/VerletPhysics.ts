@@ -290,13 +290,6 @@ export function tickAgent(a: Agent, dt: number, getHeightAt?: (x: number, z: num
   const dir: V2 = { x: Math.cos(a.orientation), y: Math.sin(a.orientation) };
   const center: V3 = { x: a.pos.x, y: a.pos.y, z: 0 };
   
-  // Upward muscle forces for body (like in C++ code, but gentler)
-  for (const si of a.spine) {
-    const p = a.skeleton.joints[si].pIdx;
-    // Add upward force by modifying previous position (creates velocity)
-    a.skeleton.particles[p].prev.z -= 0.2 * dt * 60; // Reduced from 0.4 to 0.2
-  }
-  
   // Better foot placement system (similar to C++ code)
   for (const leg of a.legs) {
     const j = a.skeleton.joints[leg.jointIdx].pIdx;
@@ -328,21 +321,20 @@ export function tickAgent(a: Agent, dt: number, getHeightAt?: (x: number, z: num
     a.skeleton.particles[j].prev = { ...a.skeleton.particles[j].pos };
   }
   
-  // Head positioning - keep head forward and up
+  // Simple head positioning - just keep it forward
   const h = a.skeleton.joints[a.headIdx].pIdx;
-  const headTarget = add(center, { x: dir.x * 2.0, y: dir.y * 2.0, z: 3.0 }); // Higher target
+  const headTarget = add(center, { x: dir.x * 2.0, y: dir.y * 2.0, z: 2.5 });
   
-  // Smooth head movement towards target
+  // Gentle head movement towards target
   const headCurrent = a.skeleton.particles[h].pos;
   const headDiff = sub(headTarget, headCurrent);
-  a.skeleton.particles[h].pos = add(headCurrent, mul(headDiff, 0.05)); // Gentler movement
+  a.skeleton.particles[h].pos = add(headCurrent, mul(headDiff, 0.05));
   
-  // Strong upward force to head to keep it up (like neck muscles)
-  a.skeleton.particles[h].prev.z -= 0.5 * dt * 60; // Stronger upward force
-  
-  // Also add forward force to keep head in proper position
-  a.skeleton.particles[h].prev.x += dir.x * 0.1 * dt * 60;
-  a.skeleton.particles[h].prev.y += dir.y * 0.1 * dt * 60;
+  // Gentle upward force to ALL particles - keeps everything up but flexible
+  const upwardForce = 0.15; // Single parameter to control stiffness
+  for (const particle of a.skeleton.particles) {
+    particle.prev.z -= upwardForce * dt * 60;
+  }
   
   // Update skeleton with terrain collision
   updateSkeleton(a.skeleton, getHeightAt);
