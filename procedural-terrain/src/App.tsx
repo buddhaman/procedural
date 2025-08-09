@@ -30,7 +30,7 @@ export default function App() {
   const controlsRef = useRef<PointerLockControls | null>(null);
   const [params, setParams] = useState<Params>({ ...DEFAULTS });
   const [waveStrength, setWaveStrength] = useState(0.1);
-  const [waterOpacity, setWaterOpacity] = useState(0.8);
+  const [waterOpacity, setWaterOpacity] = useState(0.4);
   const [currentBiome, setCurrentBiome] = useState<string>('Unknown');
   const [cameraPosition, setCameraPosition] = useState({ x: 0, y: 0, z: 0 });
   const [biomeParams, setBiomeParams] = useState<any>(null);
@@ -77,12 +77,13 @@ export default function App() {
     directionalLight.castShadow = true;
     directionalLight.shadow.mapSize.width = 2048;
     directionalLight.shadow.mapSize.height = 2048;
-    directionalLight.shadow.camera.near = 0.1;
-    directionalLight.shadow.camera.far = 500;
+    directionalLight.shadow.camera.near = 1;
+    directionalLight.shadow.camera.far = 400;
     directionalLight.shadow.camera.left = -200;
     directionalLight.shadow.camera.right = 200;
     directionalLight.shadow.camera.top = 200;
     directionalLight.shadow.camera.bottom = -200;
+    directionalLight.shadow.bias = -0.0005; // Fix shadow acne
     scene.add(directionalLight);
 
     // Soft ambient + sky/ground fill for colorful look
@@ -203,12 +204,24 @@ export default function App() {
         compassRealtimeRef.current.textContent = `${dirs[idx]} ${Math.round(degrees)}°`;
       }
 
+      // Move both light and target to follow player, keeping direction constant
+      const lightOffset = new THREE.Vector3(100, 100, 50); // Original offset
+      directionalLight.position.copy(camera.position).add(lightOffset);
+      directionalLight.target.position.copy(camera.position);
+      directionalLight.target.updateMatrixWorld();
+
       // Update creatures
       creatureSystem.update({
         x: camera.position.x,
         y: camera.position.y,
         z: camera.position.z
       });
+      
+      // Update creature count more frequently (every frame)
+      const currentCreatureCount = creatureSystem.getCreatureCount();
+      if (currentCreatureCount !== creatureCount) {
+        setCreatureCount(currentCreatureCount);
+      }
 
       // Update UI with current biome (throttled to every 500ms)
       const currentTime = clock.getElapsedTime();
@@ -234,9 +247,6 @@ export default function App() {
         // Get detailed biome parameters for debug display
         const detailedParams = chunkManager.getBiomeParamsAt(pos.x, pos.z);
         setBiomeParams(detailedParams);
-        
-        // Update creature count
-        setCreatureCount(creatureSystem.getCreatureCount());
       }
 
       renderer.render(scene, camera);
@@ -426,6 +436,22 @@ export default function App() {
               </div>
             )}
 
+            {/* Creatures info */}
+            <div style={{ 
+              marginBottom: '12px', 
+              padding: '8px', 
+              background: 'rgba(100, 200, 100, 0.08)', 
+              borderRadius: '8px',
+              fontSize: '11px'
+            }}>
+              <div style={{ color: '#90EE90', fontWeight: 700, marginBottom: 6 }}>
+                Active Creatures: {creatureCount}
+              </div>
+              <div style={{ color: '#ccc' }}>
+                Spawning dynamically as you explore
+              </div>
+            </div>
+
             {/* Terrain controls */}
             <div style={{ marginBottom: 10 }}>
               <label>Seed: </label>
@@ -435,94 +461,6 @@ export default function App() {
                 onChange={(e) => setParams({ ...params, seed: e.target.value })}
                 style={{ width: 150, marginLeft: 10 }}
               />
-            </div>
-
-            <div style={{ marginBottom: 10 }}>
-              <label>Base Frequency: </label>
-              <input
-                type="range"
-                min="0.005"
-                max="0.1"
-                step="0.005"
-                value={params.baseFrequency}
-                onChange={(e) => setParams({ ...params, baseFrequency: parseFloat(e.target.value) })}
-                style={{ width: 100, marginLeft: 10 }}
-              />
-              <span style={{ marginLeft: 10 }}>{params.baseFrequency.toFixed(3)}</span>
-            </div>
-
-            <div style={{ marginBottom: 10 }}>
-              <label>Base Amplitude: </label>
-              <input
-                type="range"
-                min="5"
-                max="50"
-                step="1"
-                value={params.baseAmplitude}
-                onChange={(e) => setParams({ ...params, baseAmplitude: parseInt(e.target.value) })}
-                style={{ width: 100, marginLeft: 10 }}
-              />
-              <span style={{ marginLeft: 10 }}>{params.baseAmplitude}</span>
-            </div>
-
-            <div style={{ marginBottom: 10 }}>
-              <label>Detail Frequency: </label>
-              <input
-                type="range"
-                min="0.05"
-                max="0.3"
-                step="0.01"
-                value={params.detailFrequency}
-                onChange={(e) => setParams({ ...params, detailFrequency: parseFloat(e.target.value) })}
-                style={{ width: 100, marginLeft: 10 }}
-              />
-              <span style={{ marginLeft: 10 }}>{params.detailFrequency.toFixed(2)}</span>
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <label>Detail Amplitude: </label>
-              <input
-                type="range"
-                min="1"
-                max="10"
-                step="0.5"
-                value={params.detailAmplitude}
-                onChange={(e) => setParams({ ...params, detailAmplitude: parseFloat(e.target.value) })}
-                style={{ width: 100, marginLeft: 10 }}
-              />
-              <span style={{ marginLeft: 10 }}>{params.detailAmplitude}</span>
-            </div>
-
-            <div style={{ marginBottom: 10 }}>
-              <label>Wave Strength: </label>
-              <input
-                type="range"
-                min="0.0"
-                max="0.3"
-                step="0.02"
-                value={waveStrength}
-                onChange={(e) => setWaveStrength(parseFloat(e.target.value))}
-                style={{ width: 100, marginLeft: 10 }}
-              />
-              <span style={{ marginLeft: 10 }}>
-                {waveStrength.toFixed(2)}
-              </span>
-            </div>
-
-            <div style={{ marginBottom: 0 }}>
-              <label>Water Opacity: </label>
-              <input
-                type="range"
-                min="0.5"
-                max="1.0"
-                step="0.05"
-                value={waterOpacity}
-                onChange={(e) => setWaterOpacity(parseFloat(e.target.value))}
-                style={{ width: 100, marginLeft: 10 }}
-              />
-              <span style={{ marginLeft: 10 }}>
-                {waterOpacity.toFixed(2)}
-              </span>
             </div>
           </div>
         </div>

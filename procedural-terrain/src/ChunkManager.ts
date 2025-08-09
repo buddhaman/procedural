@@ -114,10 +114,11 @@ export class ChunkManager {
     if (chunk.terrainMesh) {
       chunk.terrainMesh.geometry.dispose();
       chunk.terrainMesh.geometry = terrainGeometry;
+      chunk.terrainMesh.castShadow = false;  // Disable for now to focus on creature shadows
     } else {
       chunk.terrainMesh = new THREE.Mesh(terrainGeometry, this.terrainMaterial);
       chunk.terrainMesh.position.set(chunk.worldX, 0, chunk.worldZ);
-      chunk.terrainMesh.castShadow = false;
+      chunk.terrainMesh.castShadow = false;  // Disable terrain self-shadows for now
       chunk.terrainMesh.receiveShadow = true;
       this.scene.add(chunk.terrainMesh);
     }
