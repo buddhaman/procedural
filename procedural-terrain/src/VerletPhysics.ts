@@ -63,7 +63,7 @@ export function lerp(a: number, b: number, t: number): number {
 }
 
 export function mulV2to3(dir: V2, scale: number): V3 {
-  return { x: dir.x * scale, y: dir.y * scale, z: 0 };
+  return { x: dir.x * scale, y: 0, z: dir.y * scale };
 }
 
 export function xform(center: V3, dir: V2, offset: V3): V3 {
@@ -71,9 +71,9 @@ export function xform(center: V3, dir: V2, offset: V3): V3 {
   const sin = Math.sin(Math.atan2(dir.y, dir.x));
   
   return {
-    x: center.x + offset.x * cos - offset.y * sin,
-    y: center.y + offset.x * sin + offset.y * cos,
-    z: center.z + offset.z
+    x: center.x + offset.x * cos - offset.z * sin,
+    y: center.y + offset.y,
+    z: center.z + offset.x * sin + offset.z * cos
   };
 }
 
@@ -131,23 +131,23 @@ export function updateSkeleton(s: Skeleton, getHeightAt?: (x: number, z: number)
     }
   }
   
-  // Terrain collision for all particles
+  // Terrain collision for all particles (Y is up in rendering)
   for (const p of s.particles) {
     let groundHeight = 0; // Default ground level
     
     if (getHeightAt) {
-      const terrainHeight = getHeightAt(p.pos.x, p.pos.y);
+      const terrainHeight = getHeightAt(p.pos.x, p.pos.z);
       if (Number.isFinite(terrainHeight)) {
         groundHeight = terrainHeight;
       }
     }
     
-    // Clamp particle to terrain
-    if (p.pos.z < groundHeight) {
-      p.pos.z = groundHeight;
+    // Clamp particle to terrain (Y is up)
+    if (p.pos.y < groundHeight) {
+      p.pos.y = groundHeight;
       // Also adjust previous position to reduce bouncing
-      if (p.prev.z < groundHeight) {
-        p.prev.z = groundHeight;
+      if (p.prev.y < groundHeight) {
+        p.prev.y = groundHeight;
       }
     }
   }
@@ -187,8 +187,8 @@ export function buildCreature(seed: number, params: any): Agent {
   const spine: number[] = [];
   const N = params.spineSegments;
   
-  // Start with neck position (like C++ code)
-  let p0: V3 = { x: 0, y: 0, z: params.baseHeight };
+  // Start with neck position (like C++ code) - Y is up
+  let p0: V3 = { x: 0, y: params.baseHeight, z: 0 };
   
   // Calculate spacing like C++ code: diff = 9.0f*scale
   const diff = params.segmentDX; // This should be the spacing between segments
@@ -216,7 +216,7 @@ export function buildCreature(seed: number, params: any): Agent {
   
   // Store target positions for legs (like C++ agent->body.target_positions)
   const targetPositions: V3[] = [];
-  let targetP = { x: -(N - 1) * diff / 2.0, y: 0, z: params.baseHeight };
+  let targetP = { x: -(N - 1) * diff / 2.0, y: params.baseHeight, z: 0 };
   for (let i = 0; i < N; i++) {
     targetPositions.push({ ...targetP });
     if (i < N - 1) {
@@ -238,14 +238,14 @@ export function buildCreature(seed: number, params: any): Agent {
     for (const dir of [-1, 1]) {
       const knee = addJoint(s, add(s.particles[base].pos, { 
         x: 0, 
-        y: dir * params.hipY, 
-        z: -params.kneeZ 
+        y: -params.kneeZ, 
+        z: dir * params.hipY 
       }), params.kneeR || 0.5, params.color);
       
       const foot = addJoint(s, add(s.particles[base].pos, { 
         x: params.footX, 
-        y: dir * params.footY, 
-        z: -params.legZ 
+        y: -params.legZ, 
+        z: dir * params.footY 
       }), params.footR || 0.4, params.color);
       
       // Leg limbs - thinner than joints for better look
@@ -254,8 +254,8 @@ export function buildCreature(seed: number, params: any): Agent {
       
       // Use target position for leg offset (like C++ code)
       const targetOffset = { ...targetPositions[seg] };
-      targetOffset.y += dir * 2.0; // Closer to body - reduced from 3.0 to 2.0
-      targetOffset.z = 0.0; // Ground level
+      targetOffset.z += dir * 2.0; // Closer to body - reduced from 3.0 to 2.0
+      targetOffset.y = 0.0; // Ground level
       
       legs.push({
         jointIdx: foot,
@@ -269,8 +269,8 @@ export function buildCreature(seed: number, params: any): Agent {
   // Add head
   const head = addJoint(s, add(s.particles[s.joints[spine[N - 1]].pIdx].pos, {
     x: params.headX,
-    y: 0,
-    z: params.headZ
+    y: params.headZ,
+    z: 0
   }), params.headR, params.color);
   
   addLimbTrapezoid(s, spine[N - 1], (params.torsoR || 1.0) * 0.5, head, (params.headR || 0.8) * 0.5, params.color);
@@ -288,7 +288,7 @@ export function buildCreature(seed: number, params: any): Agent {
 
 export function tickAgent(a: Agent, dt: number, getHeightAt?: (x: number, z: number) => number): void {
   const dir: V2 = { x: Math.cos(a.orientation), y: Math.sin(a.orientation) };
-  const center: V3 = { x: a.pos.x, y: a.pos.y, z: 0 };
+  const center: V3 = { x: a.pos.x, y: 0, z: a.pos.y };
   
   // Better foot placement system (similar to C++ code)
   for (const leg of a.legs) {
@@ -298,20 +298,20 @@ export function tickAgent(a: Agent, dt: number, getHeightAt?: (x: number, z: num
     // Check distance from current foot position to target (top-down view)
     const footDist2D = Math.sqrt(
       Math.pow(worldTarget.x - leg.footPos.x, 2) + 
-      Math.pow(worldTarget.y - leg.footPos.y, 2)
+      Math.pow(worldTarget.z - leg.footPos.z, 2)
     );
     
     // Only move foot if it's too far away (prevents glitchy movement)
     if (footDist2D > leg.stepRadius) {
       // Move foot to target with small random offset in forward direction
       leg.footPos.x = worldTarget.x + dir.x * Math.random() * leg.stepRadius * 0.5;
-      leg.footPos.y = worldTarget.y + dir.y * Math.random() * leg.stepRadius * 0.5;
+      leg.footPos.z = worldTarget.z + dir.y * Math.random() * leg.stepRadius * 0.5;
       
       // Update foot position to terrain height
       if (getHeightAt) {
-        const terrainHeight = getHeightAt(leg.footPos.x, leg.footPos.y);
+        const terrainHeight = getHeightAt(leg.footPos.x, leg.footPos.z);
         if (Number.isFinite(terrainHeight)) {
-          leg.footPos.z = terrainHeight;
+          leg.footPos.y = terrainHeight;
         }
       }
     }
@@ -323,7 +323,7 @@ export function tickAgent(a: Agent, dt: number, getHeightAt?: (x: number, z: num
   
   // Simple head positioning - just keep it forward
   const h = a.skeleton.joints[a.headIdx].pIdx;
-  const headTarget = add(center, { x: dir.x * 2.0, y: dir.y * 2.0, z: 2.5 });
+  const headTarget = add(center, { x: dir.x * 2.0, y: 2.5, z: dir.y * 2.0 });
   
   // Gentle head movement towards target
   const headCurrent = a.skeleton.particles[h].pos;
@@ -333,7 +333,7 @@ export function tickAgent(a: Agent, dt: number, getHeightAt?: (x: number, z: num
   // Gentle upward force to ALL particles - keeps everything up but flexible
   const upwardForce = 0.15; // Single parameter to control stiffness
   for (const particle of a.skeleton.particles) {
-    particle.prev.z -= upwardForce * dt * 60;
+    particle.prev.y -= upwardForce * dt * 60;
   }
   
   // Update skeleton with terrain collision

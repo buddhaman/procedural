@@ -84,18 +84,18 @@ export class CreatureSystem {
     // Position creature on terrain at starting position
     for (const particle of agent.skeleton.particles) {
       particle.pos.x += startPos.x;
-      particle.pos.y += startPos.y;
-      particle.pos.z += baseHeight;
+      particle.pos.z += startPos.y;
+      particle.pos.y += baseHeight;
       particle.prev.x += startPos.x;
-      particle.prev.y += startPos.y;
-      particle.prev.z += baseHeight;
+      particle.prev.z += startPos.y;
+      particle.prev.y += baseHeight;
     }
     
     // Update leg foot positions to terrain
     for (const leg of agent.legs) {
       leg.footPos.x += startPos.x;
-      leg.footPos.y += startPos.y;
-      leg.footPos.z = baseHeight;
+      leg.footPos.z += startPos.y;
+      leg.footPos.y = baseHeight;
     }
     
     return agent;
@@ -113,9 +113,9 @@ export class CreatureSystem {
     
     // Update foot positions to terrain height
     for (const leg of agent.legs) {
-      const terrainHeight = this.chunkManager.getHeightAt(leg.footPos.x, leg.footPos.y);
+      const terrainHeight = this.chunkManager.getHeightAt(leg.footPos.x, leg.footPos.z);
       if (Number.isFinite(terrainHeight)) {
-        leg.footPos.z = terrainHeight;
+        leg.footPos.y = terrainHeight;
       }
     }
   }

@@ -219,17 +219,17 @@ export class CreatureRenderer {
       const p1 = skeleton.particles[constraint.i0];
       const p2 = skeleton.particles[constraint.i1];
       
-      // Convert coordinates (Y is up in Three.js, Z is forward)
+      // Direct coordinate mapping (both physics and Three.js use Y-up)
       from.set(
         p1.pos.x + offset.x,
-        p1.pos.z + offset.z,
-        p1.pos.y + offset.y
+        p1.pos.y + offset.y,
+        p1.pos.z + offset.z
       );
       
       to.set(
         p2.pos.x + offset.x,
-        p2.pos.z + offset.z,
-        p2.pos.y + offset.y
+        p2.pos.y + offset.y,
+        p2.pos.z + offset.z
       );
       
       // Average width for the beam - make it thicker
@@ -243,8 +243,8 @@ export class CreatureRenderer {
       
       center.set(
         particle.pos.x + offset.x,
-        particle.pos.z + offset.z,
-        particle.pos.y + offset.y
+        particle.pos.y + offset.y,
+        particle.pos.z + offset.z
       );
       
       this.renderer.renderSphere(center, joint.r, colorObj);
@@ -258,8 +258,8 @@ export class CreatureRenderer {
     const headParticle = skeleton.particles[skeleton.joints[headIdx].pIdx];
     const headPos = new THREE.Vector3(
       headParticle.pos.x + offset.x,
-      headParticle.pos.z + offset.z,
-      headParticle.pos.y + offset.y
+      headParticle.pos.y + offset.y,
+      headParticle.pos.z + offset.z
     );
     
     // Blinking logic
