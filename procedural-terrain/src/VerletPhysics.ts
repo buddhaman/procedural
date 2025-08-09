@@ -168,6 +168,7 @@ export type Agent = {
   spine: number[];
   legs: LegCtrl[];
   headIdx: number;
+  headLocalOffset: V3;
   color: number;
 };
 
@@ -282,6 +283,10 @@ export function buildCreature(seed: number, params: any): Agent {
     spine,
     legs,
     headIdx: head,
+    headLocalOffset: sub(
+      s.particles[s.joints[head].pIdx].pos,
+      s.particles[s.joints[spine[N - 1]].pIdx].pos
+    ),
     color: params.color
   };
 }
@@ -321,11 +326,12 @@ export function tickAgent(a: Agent, dt: number, getHeightAt?: (x: number, z: num
     a.skeleton.particles[j].prev = { ...a.skeleton.particles[j].pos };
   }
   
-  // Simple head positioning - just keep it forward
-  const h = a.skeleton.joints[a.headIdx].pIdx;
-  const headTarget = add(center, { x: dir.x * 2.0, y: 2.5, z: dir.y * 2.0 });
+  // Head positioning relative to neck using stored local offset (no absolute world heights)
+  const neckPIdx = a.skeleton.joints[a.spine[a.spine.length - 1]].pIdx;
+  const neckWorld = a.skeleton.particles[neckPIdx].pos;
+  const headTarget = xform(neckWorld, dir, a.headLocalOffset);
   
-  // Gentle head movement towards target
+  const h = a.skeleton.joints[a.headIdx].pIdx;
   const headCurrent = a.skeleton.particles[h].pos;
   const headDiff = sub(headTarget, headCurrent);
   a.skeleton.particles[h].pos = add(headCurrent, mul(headDiff, 0.05));

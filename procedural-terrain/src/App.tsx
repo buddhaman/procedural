@@ -38,6 +38,7 @@ export default function App() {
   const [headingDeg, setHeadingDeg] = useState<number>(0);
   const [speciesFound, setSpeciesFound] = useState<number>(0);
   const [journalEntries, setJournalEntries] = useState<string[]>([]);
+  const [creatureCount, setCreatureCount] = useState<number>(0);
   const chunkManagerRef = useRef<ChunkManager | null>(null);
   const creatureSystemRef = useRef<CreatureSystem | null>(null);
   const lastBiomeUpdate = useRef<number>(0);
@@ -233,6 +234,9 @@ export default function App() {
         // Get detailed biome parameters for debug display
         const detailedParams = chunkManager.getBiomeParamsAt(pos.x, pos.z);
         setBiomeParams(detailedParams);
+        
+        // Update creature count
+        setCreatureCount(creatureSystem.getCreatureCount());
       }
 
       renderer.render(scene, camera);
@@ -335,6 +339,10 @@ export default function App() {
             <div className="kv">
               <div className="k">Species Found</div>
               <div className="v">{speciesFound}</div>
+              <div className="k">Creatures Nearby</div>
+              <div className="v">
+                <span className="pill">{creatureCount}</span>
+              </div>
               <div className="k">Journal</div>
               <div className="v">
                 <span className="pill">{journalEntries.length} entries</span>

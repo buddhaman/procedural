@@ -2,23 +2,27 @@ import * as THREE from 'three';
 import { Agent, buildCreature, tickAgent, V2, V3 } from './VerletPhysics';
 import { CreatureRenderer } from './CreatureRenderer';
 import { ChunkManager } from './ChunkManager';
+import { CHUNK_WORLD_SIZE, RENDER_DISTANCE } from './types';
+
+type ChunkId = string; // "x,z" format
 
 export class CreatureSystem {
   private scene: THREE.Scene;
   private renderer: CreatureRenderer;
   private chunkManager: ChunkManager;
-  private agents: Agent[] = []; // Multiple creatures
+  private activeCreatures: Agent[] = [];
+  private activeChunks = new Set<ChunkId>();
   private clock = new THREE.Clock();
+  
+  // Spawning parameters
+  private spawnProb = 0.3; // Probability per spawn attempt - increased for testing
+  private spawnAttemptsPerChunk = 12; // How many spawn attempts per chunk
+  private maxCreaturesTotal = 50; // Prevent too many creatures
   
   constructor(scene: THREE.Scene, chunkManager: ChunkManager) {
     this.scene = scene;
     this.chunkManager = chunkManager;
     this.renderer = new CreatureRenderer(scene);
-    
-    // Create multiple creatures with random phenotypes
-    this.agents.push(this.createCreature(42, { x: 0, y: 0 }));
-    this.agents.push(this.createCreature(123, { x: 15, y: 10 }));
-    this.agents.push(this.createCreature(456, { x: -12, y: 8 }));
   }
   
   private getCreatureParams(seed: number): any {
@@ -70,31 +74,33 @@ export class CreatureSystem {
     };
   }
   
-  private createCreature(seed: number, startPos: V2): Agent {
+  private createCreatureAt(worldX: number, worldZ: number): Agent {
+    // Generate seed based on position for consistent creature types in areas
+    const seed = Math.floor(worldX * 1000 + worldZ * 31) >>> 0;
     const params = this.getCreatureParams(seed);
     
     const agent = buildCreature(seed, params);
-    agent.pos = { x: startPos.x, y: startPos.y };
-    agent.orientation = Math.random() * Math.PI * 2; // Random starting orientation
+    agent.pos = { x: worldX, y: worldZ };
+    agent.orientation = (seed % 1000) / 1000 * Math.PI * 2; // Deterministic orientation
     
     // Get terrain height at starting position
-    const terrainHeight = this.chunkManager.getHeightAt(startPos.x, startPos.y);
+    const terrainHeight = this.chunkManager.getHeightAt(worldX, worldZ);
     const baseHeight = Number.isFinite(terrainHeight) ? terrainHeight : 0;
     
     // Position creature on terrain at starting position
     for (const particle of agent.skeleton.particles) {
-      particle.pos.x += startPos.x;
-      particle.pos.z += startPos.y;
+      particle.pos.x += worldX;
+      particle.pos.z += worldZ;
       particle.pos.y += baseHeight;
-      particle.prev.x += startPos.x;
-      particle.prev.z += startPos.y;
+      particle.prev.x += worldX;
+      particle.prev.z += worldZ;
       particle.prev.y += baseHeight;
     }
     
     // Update leg foot positions to terrain
     for (const leg of agent.legs) {
-      leg.footPos.x += startPos.x;
-      leg.footPos.z += startPos.y;
+      leg.footPos.x += worldX;
+      leg.footPos.z += worldZ;
       leg.footPos.y = baseHeight;
     }
     
@@ -103,11 +109,11 @@ export class CreatureSystem {
   
   private updateCreatureMovement(agent: Agent, dt: number): void {
     // Faster random wandering behavior
-    agent.orientation += (Math.random() - 0.5) * 2.5 * dt; // Much faster turning - increased from 1.0 to 2.5
+    agent.orientation += (Math.random() - 0.5) * 2.5 * dt;
     
     // Move forward at faster speeds
-    const baseSpeed = 4.5; // Increased from 1.5 to 4.5
-    const randomSpeed = baseSpeed + (Math.random() - 0.5) * 2.0; // More speed variation
+    const baseSpeed = 4.5;
+    const randomSpeed = baseSpeed + (Math.random() - 0.5) * 2.0;
     agent.pos.x += Math.cos(agent.orientation) * randomSpeed * dt;
     agent.pos.y += Math.sin(agent.orientation) * randomSpeed * dt;
     
@@ -120,8 +126,83 @@ export class CreatureSystem {
     }
   }
   
+  private spawnCreaturesInChunk(chunkX: number, chunkZ: number): void {
+    if (this.activeCreatures.length >= this.maxCreaturesTotal) {
+      return; // Don't spawn if we're at max capacity
+    }
+    
+    const worldX = chunkX * CHUNK_WORLD_SIZE;
+    const worldZ = chunkZ * CHUNK_WORLD_SIZE;
+    
+    // Generate deterministic random positions within this chunk
+    const chunkSeed = (chunkX * 1000 + chunkZ) >>> 0;
+    let rng = this.seedRandom(chunkSeed);
+    
+    let spawned = 0;
+    for (let i = 0; i < this.spawnAttemptsPerChunk; i++) {
+      if (rng() < this.spawnProb) {
+        // Random position within chunk
+        const localX = rng() * CHUNK_WORLD_SIZE;
+        const localZ = rng() * CHUNK_WORLD_SIZE;
+        const creatureX = worldX + localX;
+        const creatureZ = worldZ + localZ;
+        
+        // For now, spawn everywhere to test - we'll fix height checking later
+        const creature = this.createCreatureAt(creatureX, creatureZ);
+        this.activeCreatures.push(creature);
+        spawned++;
+      }
+    }
+    
+    if (spawned > 0) {
+      console.log(`Spawned ${spawned} creatures in chunk ${chunkX},${chunkZ}`);
+    }
+  }
+  
+  private cleanupDistantCreatures(playerX: number, playerZ: number): void {
+    const activeRadius = (RENDER_DISTANCE + 1) * CHUNK_WORLD_SIZE;
+    
+    this.activeCreatures = this.activeCreatures.filter(creature => {
+      const dx = creature.pos.x - playerX;
+      const dz = creature.pos.y - playerZ;
+      const distance = Math.sqrt(dx * dx + dz * dz);
+      
+      return distance <= activeRadius;
+    });
+  }
+  
+  private updateActiveChunks(playerX: number, playerZ: number): void {
+    const playerChunkX = Math.floor(playerX / CHUNK_WORLD_SIZE);
+    const playerChunkZ = Math.floor(playerZ / CHUNK_WORLD_SIZE);
+    
+    const newActiveChunks = new Set<ChunkId>();
+    
+    // Determine which chunks should be active
+    for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
+      for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
+        const chunkX = playerChunkX + dx;
+        const chunkZ = playerChunkZ + dz;
+        const chunkId = `${chunkX},${chunkZ}`;
+        newActiveChunks.add(chunkId);
+        
+        // If this chunk is newly active, spawn creatures in it
+        if (!this.activeChunks.has(chunkId)) {
+          this.spawnCreaturesInChunk(chunkX, chunkZ);
+        }
+      }
+    }
+    
+    this.activeChunks = newActiveChunks;
+  }
+  
   update(playerPos: V3): void {
-    const dt = Math.min(this.clock.getDelta(), 0.05); // Cap delta time
+    const dt = Math.min(this.clock.getDelta(), 0.05);
+    
+    // Update which chunks are active and spawn creatures in new chunks
+    this.updateActiveChunks(playerPos.x, playerPos.z);
+    
+    // Clean up creatures that are too far away
+    this.cleanupDistantCreatures(playerPos.x, playerPos.z);
     
     // Reset renderer for new frame
     this.renderer.reset();
@@ -129,8 +210,8 @@ export class CreatureSystem {
     // Create terrain height function for physics
     const getHeightAt = (x: number, z: number) => this.chunkManager.getHeightAt(x, z);
     
-    // Update all creatures
-    for (const agent of this.agents) {
+    // Update all active creatures
+    for (const agent of this.activeCreatures) {
       // Update movement
       this.updateCreatureMovement(agent, dt);
       
@@ -151,7 +232,14 @@ export class CreatureSystem {
     this.renderer.update();
   }
   
+  // Getter for debugging
+  getCreatureCount(): number {
+    return this.activeCreatures.length;
+  }
+  
   dispose(): void {
+    this.activeCreatures.length = 0;
+    this.activeChunks.clear();
     this.renderer.dispose();
   }
 }
