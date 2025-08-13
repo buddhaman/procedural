@@ -159,9 +159,10 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
     }
   }
   
-  // Add ground vegetation (bushes)
+  // Add ground vegetation (bushes and grass)
+  
   // Generate bushes between trees with lower density
-  const bushDensity = 0.01; // Much lower density than trees
+  const bushDensity = 0.008; // Slightly lower density to make room for grass
   for (let attempt = 0; attempt < chunkSize * chunkSize * bushDensity; attempt++) {
     const randomSeed = Math.floor(Math.abs(Math.sin(seed.length * 123 + attempt * 456)) * 100000);
     const rng1 = Math.abs(Math.sin(randomSeed * 1.234)) % 1;
@@ -199,7 +200,7 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
     if (tooClose) continue;
     
     // Bush size based on biome moisture and temperature
-    const bushSize = 0.8 + biomeParams.moisture * 1.2 + Math.abs(Math.sin(randomSeed * 4.567)) * 0.8;
+    const bushSize = 1.2 + biomeParams.moisture * 1.5 + Math.abs(Math.sin(randomSeed * 4.567)) * 1.0;
     
     // Bush color based on biome
     const greenIntensity = 0.3 + biomeParams.moisture * 0.5;
@@ -222,6 +223,73 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
     // Debug log every 10th bush
     if (attempt % 10 === 0) {
       console.log(`Added bush at ${localX.toFixed(1)}, ${biomeParams.finalHeight.toFixed(1)}, ${localZ.toFixed(1)} in biome ${biomeName}`);
+    }
+  }
+  
+  // Generate grass patches with higher density
+  const grassPatchDensity = 0.025; // Higher density for grass patches
+  for (let attempt = 0; attempt < chunkSize * chunkSize * grassPatchDensity; attempt++) {
+    const randomSeed = Math.floor(Math.abs(Math.sin(seed.length * 789 + attempt * 999)) * 100000);
+    const rng1 = Math.abs(Math.sin(randomSeed * 5.678)) % 1;
+    const rng2 = Math.abs(Math.sin(randomSeed * 6.789)) % 1;
+    const rng3 = Math.abs(Math.sin(randomSeed * 7.890)) % 1;
+    
+    const worldX = worldOffsetX + rng1 * CHUNK_WORLD_SIZE;
+    const worldZ = worldOffsetZ + rng2 * CHUNK_WORLD_SIZE;
+    const localX = worldX - worldOffsetX;
+    const localZ = worldZ - worldOffsetZ;
+    
+    // Get biome parameters for this position
+    const biomeParams = biomeGenerator.generateBiomeParams(worldX, worldZ);
+    const biomeName = biomeGenerator.getBiomeName(biomeParams);
+    
+    // Only place grass in suitable biomes (not desert, not ocean, prefer grasslands and forests)
+    if (biomeName === 'desert' || biomeName === 'ocean' || biomeName === 'mountains') continue;
+    
+    // Check vegetation intensity
+    const { weights } = getBiomeParams(worldX, worldZ);
+    const vegIntensity = vegetationSystem.computeVegetationIntensity(worldX, worldZ, biomeParams, weights);
+    
+    // Skip if vegetation density is too low (grass is more tolerant)
+    if (rng3 > vegIntensity * 0.8) continue; // Higher tolerance for grass
+    
+    // Make sure we're not too close to trees or bushes (but allow closer than bushes)
+    let tooClose = false;
+    for (const tree of trees) {
+      const dist = Math.sqrt((worldX - tree.x) ** 2 + (worldZ - tree.z) ** 2);
+      if (dist < 4) { // Smaller minimum distance for grass
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+    
+    // Grass patch properties
+    const patchSize = 3.0 + biomeParams.moisture * 2.0 + Math.abs(Math.sin(randomSeed * 8.901)) * 2.0;
+    const grassDensity = 8 + biomeParams.moisture * 12; // Blades per square unit
+    
+    // Grass color based on biome - more vibrant greens
+    const baseGreen = 0.5 + biomeParams.moisture * 0.4;
+    const temperatureEffect = (biomeParams.temperature - 0.5) * 0.15;
+    const grassColor: [number, number, number] = [
+      Math.max(0.1, Math.min(0.6, 0.2 + temperatureEffect)),
+      Math.max(0.3, Math.min(0.95, baseGreen)),
+      Math.max(0.1, Math.min(0.4, 0.15 - temperatureEffect))
+    ];
+    
+    vegetationBuilder.addGrassPatch(
+      localX,
+      biomeParams.finalHeight,
+      localZ,
+      patchSize,
+      grassDensity,
+      grassColor,
+      randomSeed
+    );
+    
+    // Debug log every 20th grass patch
+    if (attempt % 20 === 0) {
+      console.log(`Added grass patch at ${localX.toFixed(1)}, ${biomeParams.finalHeight.toFixed(1)}, ${localZ.toFixed(1)} in biome ${biomeName}`);
     }
   }
   

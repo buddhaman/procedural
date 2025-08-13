@@ -173,7 +173,11 @@ export class ChunkManager {
     }
   }
 
-  public updateWater(time: number, cameraPosition: THREE.Vector3, terrainParams?: any) {
+  public updateWater(time: number, cameraPosition: THREE.Vector3, terrainParams?: any, lighting?: {
+    lightDirection?: THREE.Vector3,
+    lightColor?: THREE.Color,
+    ambientColor?: THREE.Color
+  }) {
     if (this.waterPlane) {
       // Update water plane position to follow camera (infinite water effect)
       this.waterPlane.position.x = cameraPosition.x;
@@ -191,10 +195,13 @@ export class ChunkManager {
       }
     }
     
-    // Update wind animation for vegetation
+    // Update wind animation for vegetation with scene lighting
     updateWindUniforms(this.vegetationMaterial, time, {
       windDirection: new THREE.Vector3(Math.sin(time * 0.1), 0, Math.cos(time * 0.1)).normalize(),
       windStrength: 0.6 + 0.3 * Math.sin(time * 0.2), // Gentle, natural wind variation
+      lightDirection: lighting?.lightDirection,
+      lightColor: lighting?.lightColor,
+      ambientColor: lighting?.ambientColor
     });
   }
 

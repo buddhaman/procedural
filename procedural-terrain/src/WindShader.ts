@@ -169,9 +169,9 @@ export function createWindMaterial(): THREE.ShaderMaterial {
       windStrength: { value: 0.8 }, // Gentle wind movement
       windSpeed: { value: 1.2 }, // Slower, more natural animation
       windTurbulence: { value: 0.6 }, // Subtle turbulence
-      lightDirection: { value: new THREE.Vector3(0.5, -1.0, 0.5).normalize() },
-      lightColor: { value: new THREE.Color(1.0, 0.95, 0.8) },
-      ambientColor: { value: new THREE.Color(0.3, 0.35, 0.4) }
+      lightDirection: { value: new THREE.Vector3(100, -100, 50).normalize() }, // Match scene directional light
+      lightColor: { value: new THREE.Color(1.0, 1.0, 1.0) }, // White like scene
+      ambientColor: { value: new THREE.Color(0.6, 0.65, 0.7) } // Match scene ambient + hemisphere
     },
     
     vertexColors: true,
@@ -185,7 +185,10 @@ export function updateWindUniforms(material: THREE.ShaderMaterial, time: number,
   windDirection?: THREE.Vector3,
   windStrength?: number,
   windSpeed?: number,
-  windTurbulence?: number
+  windTurbulence?: number,
+  lightDirection?: THREE.Vector3,
+  lightColor?: THREE.Color,
+  ambientColor?: THREE.Color
 }) {
   material.uniforms.time.value = time;
   
@@ -200,5 +203,16 @@ export function updateWindUniforms(material: THREE.ShaderMaterial, time: number,
   }
   if (options?.windTurbulence !== undefined) {
     material.uniforms.windTurbulence.value = options.windTurbulence;
+  }
+  
+  // Update lighting to match scene lighting
+  if (options?.lightDirection) {
+    material.uniforms.lightDirection.value.copy(options.lightDirection);
+  }
+  if (options?.lightColor) {
+    material.uniforms.lightColor.value.copy(options.lightColor);
+  }
+  if (options?.ambientColor) {
+    material.uniforms.ambientColor.value.copy(options.ambientColor);
   }
 }

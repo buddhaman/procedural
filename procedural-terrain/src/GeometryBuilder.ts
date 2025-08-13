@@ -752,7 +752,7 @@ export class GeometryBuilder {
     }
   }
 
-  // Add ground vegetation (bushes)
+  // Add ground vegetation (bushes) - larger with multiple layers
   addBush(
     x: number,
     y: number,
@@ -761,29 +761,173 @@ export class GeometryBuilder {
     color: [number, number, number],
     seed: number
   ) {
-    const bushHeight = size * (0.5 + 0.5 * this.seededRandom(seed));
-    const bushWidth = size * (0.8 + 0.4 * this.seededRandom(seed + 1));
-    const clusterCount = Math.floor(3 + 4 * this.seededRandom(seed + 2));
+    const bushHeight = size * (1.2 + 0.8 * this.seededRandom(seed)); // Bigger bushes
+    const bushWidth = size * (1.5 + 0.6 * this.seededRandom(seed + 1)); // Wider bushes
     
-    for (let i = 0; i < clusterCount; i++) {
-      const angle = (i / clusterCount) * Math.PI * 2 + (this.seededRandom(seed + i + 10) - 0.5) * 0.5;
-      const radius = bushWidth * (0.3 + 0.7 * this.seededRandom(seed + i + 20));
-      const height = bushHeight * (0.5 + 0.5 * this.seededRandom(seed + i + 30));
+    // Create multiple layers for fuller bushes
+    const layerCount = 3;
+    for (let layer = 0; layer < layerCount; layer++) {
+      const layerHeight = bushHeight * (0.3 + 0.4 * layer / layerCount);
+      const layerWidth = bushWidth * (1.0 - 0.2 * layer / layerCount); // Taper upward
+      const clusterCount = Math.floor(4 + 3 * this.seededRandom(seed + layer + 2));
       
-      const px = x + Math.cos(angle) * radius;
-      const py = y + height * 0.5;
-      const pz = z + Math.sin(angle) * radius;
+      for (let i = 0; i < clusterCount; i++) {
+        const angle = (i / clusterCount) * Math.PI * 2 + (this.seededRandom(seed + i + layer + 10) - 0.5) * 0.8;
+        const radius = layerWidth * (0.2 + 0.8 * this.seededRandom(seed + i + layer + 20));
+        
+        const px = x + Math.cos(angle) * radius;
+        const py = y + layerHeight;
+        const pz = z + Math.sin(angle) * radius;
+        
+        const leafScale = size * (0.6 + 0.5 * this.seededRandom(seed + i + layer + 40)); // Bigger leaves
+        const heightInfluence = Math.min(1.0, py / 4.0); // Height-based wind influence
+        
+        // Vary orientations for more natural look
+        const orientationVariation = 0.3;
+        const dirX = (this.seededRandom(seed + i + layer + 50) - 0.5) * orientationVariation;
+        const dirY = 1.0;
+        const dirZ = (this.seededRandom(seed + i + layer + 60) - 0.5) * orientationVariation;
+        const dirLen = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+        
+        this.addOrientedBox(
+          [px, py, pz],
+          [dirX / dirLen, dirY / dirLen, dirZ / dirLen],
+          leafScale,
+          color,
+          0.4 + 0.4 * heightInfluence // Moderate wind influence
+        );
+      }
+    }
+  }
+
+  // Add grass blade using two triangles with smart wind effects
+  addGrassBlade(
+    x: number,
+    y: number, 
+    z: number,
+    height: number,
+    width: number,
+    color: [number, number, number],
+    seed: number
+  ) {
+    // Add some random variation to grass blade shape
+    const actualHeight = height * (0.8 + 0.4 * this.seededRandom(seed));
+    const actualWidth = width * (0.7 + 0.6 * this.seededRandom(seed + 1));
+    
+    // Slight random tilt for natural look
+    const tiltX = (this.seededRandom(seed + 2) - 0.5) * 0.3;
+    const tiltZ = (this.seededRandom(seed + 3) - 0.5) * 0.3;
+    
+    // Base vertices (no wind influence)
+    const base1X = x - actualWidth * 0.5;
+    const base1Y = y;
+    const base1Z = z;
+    
+    const base2X = x + actualWidth * 0.5;
+    const base2Y = y;
+    const base2Z = z;
+    
+    // Top vertices (full wind influence) with slight tilt
+    const top1X = x - actualWidth * 0.3 + tiltX;
+    const top1Y = y + actualHeight;
+    const top1Z = z + tiltZ;
+    
+    const top2X = x + actualWidth * 0.3 + tiltX;
+    const top2Y = y + actualHeight;
+    const top2Z = z + tiltZ;
+    
+    // Create two triangles for the grass blade
+    // Triangle 1: base1 -> base2 -> top1
+    this.addGrassTriangle(
+      [base1X, base1Y, base1Z],
+      [base2X, base2Y, base2Z], 
+      [top1X, top1Y, top1Z],
+      color,
+      [0.0, 0.0, 0.9] // Wind influence: base=0, top=0.9
+    );
+    
+    // Triangle 2: base2 -> top2 -> top1  
+    this.addGrassTriangle(
+      [base2X, base2Y, base2Z],
+      [top2X, top2Y, top2Z],
+      [top1X, top1Y, top1Z],
+      color,
+      [0.0, 0.9, 0.9] // Wind influence: base=0, tops=0.9
+    );
+  }
+
+  // Add grass patch with multiple blades
+  addGrassPatch(
+    x: number,
+    y: number,
+    z: number,
+    patchSize: number,
+    grassDensity: number,
+    color: [number, number, number],
+    seed: number
+  ) {
+    const bladeCount = Math.floor(patchSize * patchSize * grassDensity);
+    
+    for (let i = 0; i < bladeCount; i++) {
+      const bladeSeed = seed * 1000 + i * 123;
       
-      const leafScale = size * (0.3 + 0.4 * this.seededRandom(seed + i + 40));
-      const heightInfluence = Math.min(1.0, py / 5.0); // Lower bushes move less
+      // Random position within patch
+      const offsetX = (this.seededRandom(bladeSeed) - 0.5) * patchSize;
+      const offsetZ = (this.seededRandom(bladeSeed + 1) - 0.5) * patchSize;
       
-      this.addOrientedBox(
-        [px, py, pz],
-        [0, 1, 0], // Upward facing
-        leafScale,
-        color,
-        0.5 + 0.3 * heightInfluence // Less wind influence than tree leaves
-      );
+      const bladeX = x + offsetX;
+      const bladeZ = z + offsetZ;
+      
+      // Grass blade properties
+      const height = 0.8 + 0.6 * this.seededRandom(bladeSeed + 2);
+      const width = 0.15 + 0.1 * this.seededRandom(bladeSeed + 3);
+      
+      // Slight color variation
+      const colorVariation = 0.1;
+      const grassColor: [number, number, number] = [
+        Math.max(0, Math.min(1, color[0] + (this.seededRandom(bladeSeed + 4) - 0.5) * colorVariation)),
+        Math.max(0, Math.min(1, color[1] + (this.seededRandom(bladeSeed + 5) - 0.5) * colorVariation)),
+        Math.max(0, Math.min(1, color[2] + (this.seededRandom(bladeSeed + 6) - 0.5) * colorVariation))
+      ];
+      
+      this.addGrassBlade(bladeX, y, bladeZ, height, width, grassColor, bladeSeed);
+    }
+  }
+
+  // Add triangle for grass with per-vertex wind influence
+  private addGrassTriangle(
+    v1: [number, number, number],
+    v2: [number, number, number],
+    v3: [number, number, number],
+    color: [number, number, number],
+    windInfluences: [number, number, number] // Per-vertex wind influence
+  ) {
+    const [x1, y1, z1] = v1;
+    const [x2, y2, z2] = v2;
+    const [x3, y3, z3] = v3;
+
+    // Calculate face normal
+    const ax = x2 - x1, ay = y2 - y1, az = z2 - z1;
+    const bx = x3 - x1, by = y3 - y1, bz = z3 - z1;
+    
+    const nx = -(ay * bz - az * by);
+    const ny = -(az * bx - ax * bz);
+    const nz = -(ax * by - ay * bx);
+    
+    const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    const normalX = nx / nLen;
+    const normalY = ny / nLen;
+    const normalZ = nz / nLen;
+
+    // Add vertices with individual wind influences
+    const vertices = [[x1, y1, z1], [x2, y2, z2], [x3, y3, z3]];
+    
+    for (let i = 0; i < 3; i++) {
+      const [x, y, z] = vertices[i];
+      this.dynamicPositions.push(x, y, z);
+      this.dynamicNormals.push(normalX, normalY, normalZ);
+      this.dynamicColors.push(color[0], color[1], color[2]);
+      this.dynamicWindData.push(windInfluences[i]);
     }
   }
 
