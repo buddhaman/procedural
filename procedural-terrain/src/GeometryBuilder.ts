@@ -180,13 +180,13 @@ export class GeometryBuilder {
     const [x2, y2, z2] = v2;
     const [x3, y3, z3] = v3;
 
-    // Calculate face normal (reversed for correct winding)
+    // Calculate face normal (same as static triangles)
     const ax = x2 - x1, ay = y2 - y1, az = z2 - z1;
     const bx = x3 - x1, by = y3 - y1, bz = z3 - z1;
     
-    const nx = -(ay * bz - az * by);
-    const ny = -(az * bx - ax * bz);
-    const nz = -(ax * by - ay * bx);
+    const nx = ay * bz - az * by;
+    const ny = az * bx - ax * bz;
+    const nz = ax * by - ay * bx;
     
     const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
     const normalX = nx / nLen;
@@ -810,31 +810,54 @@ export class GeometryBuilder {
     color: [number, number, number],
     seed: number
   ) {
-    // Add some random variation to grass blade shape
-    const actualHeight = height * (0.8 + 0.4 * this.seededRandom(seed));
-    const actualWidth = width * (0.7 + 0.6 * this.seededRandom(seed + 1));
+    // Reasonable grass blade size with variation
+    const actualHeight = height * (0.8 + 0.6 * this.seededRandom(seed)); // More reasonable height
+    const actualWidth = width * (1.0 + 0.5 * this.seededRandom(seed + 1)); // Modest width increase
     
-    // Slight random tilt for natural look
-    const tiltX = (this.seededRandom(seed + 2) - 0.5) * 0.3;
-    const tiltZ = (this.seededRandom(seed + 3) - 0.5) * 0.3;
+    // Random orientation for criss-cross effect
+    const orientation = this.seededRandom(seed + 4) * Math.PI * 2; // Full 360° rotation
+    const cosO = Math.cos(orientation);
+    const sinO = Math.sin(orientation);
     
-    // Base vertices (no wind influence)
-    const base1X = x - actualWidth * 0.5;
-    const base1Y = y;
-    const base1Z = z;
+    // Natural bend and tilt
+    const bendStrength = 0.4 + 0.6 * this.seededRandom(seed + 2);
+    const bendDirection = this.seededRandom(seed + 3) * Math.PI * 2;
+    const tiltX = Math.cos(bendDirection) * bendStrength;
+    const tiltZ = Math.sin(bendDirection) * bendStrength;
     
-    const base2X = x + actualWidth * 0.5;
-    const base2Y = y;
-    const base2Z = z;
+    // Create oriented base vertices (rotated by orientation)
+    const halfWidth = actualWidth * 0.5;
+    const base1LocalX = -halfWidth;
+    const base1LocalZ = 0;
+    const base2LocalX = halfWidth;
+    const base2LocalZ = 0;
     
-    // Top vertices (full wind influence) with slight tilt
-    const top1X = x - actualWidth * 0.3 + tiltX;
+    // Rotate base vertices and anchor them to ground
+    const groundOffset = -0.1; // Sink base slightly into ground to prevent floating
+    const base1X = x + (base1LocalX * cosO - base1LocalZ * sinO);
+    const base1Y = y + groundOffset;
+    const base1Z = z + (base1LocalX * sinO + base1LocalZ * cosO);
+    
+    const base2X = x + (base2LocalX * cosO - base2LocalZ * sinO);
+    const base2Y = y + groundOffset;
+    const base2Z = z + (base2LocalX * sinO + base2LocalZ * cosO);
+    
+    // Top vertices with bend and taper
+    const topWidth = actualWidth * 0.2; // Taper to a point
+    const top1LocalX = -topWidth;
+    const top2LocalX = topWidth;
+    
+    // Apply bend and rotation to top
+    const bendOffsetX = tiltX * actualHeight * 0.8;
+    const bendOffsetZ = tiltZ * actualHeight * 0.8;
+    
+    const top1X = x + (top1LocalX * cosO) + bendOffsetX;
     const top1Y = y + actualHeight;
-    const top1Z = z + tiltZ;
+    const top1Z = z + (top1LocalX * sinO) + bendOffsetZ;
     
-    const top2X = x + actualWidth * 0.3 + tiltX;
+    const top2X = x + (top2LocalX * cosO) + bendOffsetX;
     const top2Y = y + actualHeight;
-    const top2Z = z + tiltZ;
+    const top2Z = z + (top2LocalX * sinO) + bendOffsetZ;
     
     // Create two triangles for the grass blade
     // Triangle 1: base1 -> base2 -> top1
@@ -843,7 +866,7 @@ export class GeometryBuilder {
       [base2X, base2Y, base2Z], 
       [top1X, top1Y, top1Z],
       color,
-      [0.0, 0.0, 0.9] // Wind influence: base=0, top=0.9
+      [0.0, 0.0, 0.95] // Wind influence: base=0, top=high
     );
     
     // Triangle 2: base2 -> top2 -> top1  
@@ -852,7 +875,7 @@ export class GeometryBuilder {
       [top2X, top2Y, top2Z],
       [top1X, top1Y, top1Z],
       color,
-      [0.0, 0.9, 0.9] // Wind influence: base=0, tops=0.9
+      [0.0, 0.95, 0.95] // Wind influence: base=0, tops=high
     );
   }
 
@@ -866,28 +889,34 @@ export class GeometryBuilder {
     color: [number, number, number],
     seed: number
   ) {
-    const bladeCount = Math.floor(patchSize * patchSize * grassDensity);
+    // Bigger patches with better density distribution
+    const bladeCount = Math.floor(patchSize * patchSize * grassDensity * 0.8); // Slightly lower total for performance
     
     for (let i = 0; i < bladeCount; i++) {
       const bladeSeed = seed * 1000 + i * 123;
       
-      // Random position within patch
-      const offsetX = (this.seededRandom(bladeSeed) - 0.5) * patchSize;
-      const offsetZ = (this.seededRandom(bladeSeed + 1) - 0.5) * patchSize;
+      // More natural distribution within patch (clustered toward center)
+      const radialDistance = Math.pow(this.seededRandom(bladeSeed), 0.6) * patchSize * 0.5;
+      const angle = this.seededRandom(bladeSeed + 1) * Math.PI * 2;
+      
+      const offsetX = Math.cos(angle) * radialDistance + (this.seededRandom(bladeSeed + 7) - 0.5) * patchSize * 0.2;
+      const offsetZ = Math.sin(angle) * radialDistance + (this.seededRandom(bladeSeed + 8) - 0.5) * patchSize * 0.2;
       
       const bladeX = x + offsetX;
       const bladeZ = z + offsetZ;
       
-      // Grass blade properties
-      const height = 0.8 + 0.6 * this.seededRandom(bladeSeed + 2);
-      const width = 0.15 + 0.1 * this.seededRandom(bladeSeed + 3);
+      // More reasonable grass blade properties  
+      const height = 0.6 + 0.8 * this.seededRandom(bladeSeed + 2); // Reasonable height (0.6-1.4)
+      const width = 0.15 + 0.2 * this.seededRandom(bladeSeed + 3); // Modest width (0.15-0.35)
       
-      // Slight color variation
-      const colorVariation = 0.1;
+      // More natural color variation
+      const colorVariation = 0.15; // Increased variation
+      const brightnessVariation = (this.seededRandom(bladeSeed + 9) - 0.5) * 0.2; // Overall brightness variation
+      
       const grassColor: [number, number, number] = [
-        Math.max(0, Math.min(1, color[0] + (this.seededRandom(bladeSeed + 4) - 0.5) * colorVariation)),
-        Math.max(0, Math.min(1, color[1] + (this.seededRandom(bladeSeed + 5) - 0.5) * colorVariation)),
-        Math.max(0, Math.min(1, color[2] + (this.seededRandom(bladeSeed + 6) - 0.5) * colorVariation))
+        Math.max(0.05, Math.min(0.95, color[0] + (this.seededRandom(bladeSeed + 4) - 0.5) * colorVariation + brightnessVariation)),
+        Math.max(0.1, Math.min(0.98, color[1] + (this.seededRandom(bladeSeed + 5) - 0.5) * colorVariation + brightnessVariation)),
+        Math.max(0.05, Math.min(0.7, color[2] + (this.seededRandom(bladeSeed + 6) - 0.5) * colorVariation + brightnessVariation))
       ];
       
       this.addGrassBlade(bladeX, y, bladeZ, height, width, grassColor, bladeSeed);
@@ -906,13 +935,13 @@ export class GeometryBuilder {
     const [x2, y2, z2] = v2;
     const [x3, y3, z3] = v3;
 
-    // Calculate face normal
+    // Calculate face normal (same as static triangles)
     const ax = x2 - x1, ay = y2 - y1, az = z2 - z1;
     const bx = x3 - x1, by = y3 - y1, bz = z3 - z1;
     
-    const nx = -(ay * bz - az * by);
-    const ny = -(az * bx - ax * bz);
-    const nz = -(ax * by - ay * bx);
+    const nx = ay * bz - az * by;
+    const ny = az * bx - ax * bz;
+    const nz = ax * by - ay * bx;
     
     const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
     const normalX = nx / nLen;

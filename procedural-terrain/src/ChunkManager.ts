@@ -42,7 +42,7 @@ export class ChunkManager {
   private workQueue: { chunk: TerrainChunk; params: ChunkParams }[] = [];
   private scene: THREE.Scene;
   private terrainMaterial: THREE.Material;
-  private vegetationMaterial: THREE.ShaderMaterial;
+  private vegetationMaterial: THREE.MeshLambertMaterial;
   private waterPlane?: THREE.Mesh;
   public waterMaterial: THREE.ShaderMaterial;
   private currentTerrainParams: any;
@@ -173,11 +173,7 @@ export class ChunkManager {
     }
   }
 
-  public updateWater(time: number, cameraPosition: THREE.Vector3, terrainParams?: any, lighting?: {
-    lightDirection?: THREE.Vector3,
-    lightColor?: THREE.Color,
-    ambientColor?: THREE.Color
-  }) {
+  public updateWater(time: number, cameraPosition: THREE.Vector3, terrainParams?: any) {
     if (this.waterPlane) {
       // Update water plane position to follow camera (infinite water effect)
       this.waterPlane.position.x = cameraPosition.x;
@@ -195,13 +191,10 @@ export class ChunkManager {
       }
     }
     
-    // Update wind animation for vegetation with scene lighting
+    // Update wind animation for vegetation (lighting handled automatically by Three.js)
     updateWindUniforms(this.vegetationMaterial, time, {
       windDirection: new THREE.Vector3(Math.sin(time * 0.1), 0, Math.cos(time * 0.1)).normalize(),
       windStrength: 0.6 + 0.3 * Math.sin(time * 0.2), // Gentle, natural wind variation
-      lightDirection: lighting?.lightDirection,
-      lightColor: lighting?.lightColor,
-      ambientColor: lighting?.ambientColor
     });
   }
 

@@ -264,9 +264,9 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
     }
     if (tooClose) continue;
     
-    // Grass patch properties
-    const patchSize = 3.0 + biomeParams.moisture * 2.0 + Math.abs(Math.sin(randomSeed * 8.901)) * 2.0;
-    const grassDensity = 8 + biomeParams.moisture * 12; // Blades per square unit
+    // Bigger grass patch properties  
+    const patchSize = 6.0 + biomeParams.moisture * 4.0 + Math.abs(Math.sin(randomSeed * 8.901)) * 3.0; // Much bigger (6-13 units)
+    const grassDensity = 8 + biomeParams.moisture * 12; // Good density for large patches without overwhelming
     
     // Grass color based on biome - more vibrant greens
     const baseGreen = 0.5 + biomeParams.moisture * 0.4;

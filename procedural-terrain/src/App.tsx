@@ -253,21 +253,9 @@ export default function App() {
       // Update chunks based on camera position
       chunkManager.updateChunks(camera.position, params);
       
-      // Update water animation with lighting information
+      // Update water animation
       const elapsed = clock.getElapsedTime();
-      
-      // Calculate effective ambient color from AmbientLight + HemisphereLight
-      const ambientLightContribution = new THREE.Color(0xffffff).multiplyScalar(0.6);
-      const hemiSkyContribution = new THREE.Color(0xbfe3ff).multiplyScalar(0.35); // Half of 0.7 intensity
-      const hemiGroundContribution = new THREE.Color(0x8f6a40).multiplyScalar(0.35);
-      const effectiveAmbient = ambientLightContribution.clone()
-        .add(hemiSkyContribution.clone().lerp(hemiGroundContribution, 0.5));
-      
-      chunkManager.updateWater(elapsed, camera.position, params, {
-        lightDirection: directionalLight.position.clone().sub(directionalLight.target.position).normalize(),
-        lightColor: directionalLight.color.clone().multiplyScalar(directionalLight.intensity),
-        ambientColor: effectiveAmbient
-      });
+      chunkManager.updateWater(elapsed, camera.position, params);
 
       // Day/Night cycle (position and light color)
       dayTime = (dayTime + delta / dayLengthSec) % 1;
