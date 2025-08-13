@@ -1,0 +1,42 @@
+Date : 2025-08-11 09:20:19
+Directory : c:\code\procedural\procedural-terrain\src
+Total : 16 files,  3700 codes, 409 comments, 689 blanks, all 4798 lines
+
+Languages
++----------------+------------+------------+------------+------------+------------+
+| language       | files      | code       | comment    | blank      | total      |
++----------------+------------+------------+------------+------------+------------+
+| TypeScript     |         13 |      3,120 |        360 |        607 |      4,087 |
+| TypeScript JSX |          2 |        529 |         46 |         70 |        645 |
+| CSS            |          1 |         51 |          3 |         12 |         66 |
++----------------+------------+------------+------------+------------+------------+
+
+Directories
++---------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                          | files      | code       | comment    | blank      | total      |
++---------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                             |         16 |      3,700 |        409 |        689 |      4,798 |
++---------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++---------------------------------------------------------------+----------------+------------+------------+------------+------------+
+| filename                                                      | language       | code       | comment    | blank      | total      |
++---------------------------------------------------------------+----------------+------------+------------+------------+------------+
+| c:\code\procedural\procedural-terrain\src\App.tsx             | TypeScript JSX |        520 |         46 |         68 |        634 |
+| c:\code\procedural\procedural-terrain\src\BiomeGenerator.ts   | TypeScript     |        258 |         26 |         51 |        335 |
+| c:\code\procedural\procedural-terrain\src\BirdSystem.ts       | TypeScript     |        378 |         50 |         84 |        512 |
+| c:\code\procedural\procedural-terrain\src\ChunkManager.ts     | TypeScript     |        233 |         18 |         51 |        302 |
+| c:\code\procedural\procedural-terrain\src\CreatureRenderer.ts | TypeScript     |        266 |         32 |         65 |        363 |
+| c:\code\procedural\procedural-terrain\src\CreatureSystem.ts   | TypeScript     |        213 |         22 |         46 |        281 |
+| c:\code\procedural\procedural-terrain\src\GeometryBuilder.ts  | TypeScript     |        451 |         73 |         69 |        593 |
+| c:\code\procedural\procedural-terrain\src\SkyDome.ts          | TypeScript     |        113 |         12 |         19 |        144 |
+| c:\code\procedural\procedural-terrain\src\VegetationSystem.ts | TypeScript     |        413 |         29 |         51 |        493 |
+| c:\code\procedural\procedural-terrain\src\VerletPhysics.ts    | TypeScript     |        275 |         36 |         63 |        374 |
+| c:\code\procedural\procedural-terrain\src\WaterShader.ts      | TypeScript     |         85 |         13 |         20 |        118 |
+| c:\code\procedural\procedural-terrain\src\chunkWorker.ts      | TypeScript     |        253 |         38 |         54 |        345 |
+| c:\code\procedural\procedural-terrain\src\main.tsx            | TypeScript JSX |          9 |          0 |          2 |         11 |
+| c:\code\procedural\procedural-terrain\src\styles.css          | CSS            |         51 |          3 |         12 |         66 |
+| c:\code\procedural\procedural-terrain\src\terrainWorker.ts    | TypeScript     |        146 |         11 |         30 |        187 |
+| c:\code\procedural\procedural-terrain\src\types.ts            | TypeScript     |         36 |          0 |          4 |         40 |
+| Total                                                         |                |      3,700 |        409 |        689 |      4,798 |
++---------------------------------------------------------------+----------------+------------+------------+------------+------------+

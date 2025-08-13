@@ -27,6 +27,11 @@ export type WorkerResult = {
   scale: number;
   chunkX: number;
   chunkZ: number;
+  // Dynamic vegetation geometry (leaves/bushes with wind)
+  dynamicPositions?: Float32Array;
+  dynamicNormals?: Float32Array;
+  dynamicColors?: Float32Array;
+  dynamicWindData?: Float32Array;
 };
 
 export type ChunkCoord = {

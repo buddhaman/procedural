@@ -5,6 +5,12 @@ export class GeometryBuilder {
   // Leaf budgeting per tree
   private currentLeafCount: number = 0;
   private maxLeavesThisTree: number = Number.POSITIVE_INFINITY;
+  
+  // Separate arrays for dynamic geometry (leaves/bushes)
+  private dynamicPositions: number[] = [];
+  private dynamicNormals: number[] = [];
+  private dynamicColors: number[] = [];
+  private dynamicWindData: number[] = []; // Stores wind influence per vertex
 
   constructor() {}
 
@@ -162,6 +168,42 @@ export class GeometryBuilder {
     }
   }
 
+  // Add a flat-shaded triangle to dynamic geometry with wind influence
+  private addDynamicTriangle(
+    v1: [number, number, number],
+    v2: [number, number, number], 
+    v3: [number, number, number],
+    color: [number, number, number],
+    windInfluence: number
+  ) {
+    const [x1, y1, z1] = v1;
+    const [x2, y2, z2] = v2;
+    const [x3, y3, z3] = v3;
+
+    // Calculate face normal (reversed for correct winding)
+    const ax = x2 - x1, ay = y2 - y1, az = z2 - z1;
+    const bx = x3 - x1, by = y3 - y1, bz = z3 - z1;
+    
+    const nx = -(ay * bz - az * by);
+    const ny = -(az * bx - ax * bz);
+    const nz = -(ax * by - ay * bx);
+    
+    const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    const normalX = nx / nLen;
+    const normalY = ny / nLen;
+    const normalZ = nz / nLen;
+
+    // Add vertices (3 vertices with same normal, color, and wind influence for flat shading)
+    const vertices = [[x1, y1, z1], [x2, y2, z2], [x3, y3, z3]];
+    
+    for (const [x, y, z] of vertices) {
+      this.dynamicPositions.push(x, y, z);
+      this.dynamicNormals.push(normalX, normalY, normalZ);
+      this.dynamicColors.push(color[0], color[1], color[2]);
+      this.dynamicWindData.push(windInfluence);
+    }
+  }
+
   // Generate a fractal tree using beams
   addTree(
     x: number, y: number, z: number,
@@ -196,9 +238,8 @@ export class GeometryBuilder {
     leafColor: [number, number, number]
   ) {
     const barkColor = this.chooseBarkColor(seed);
-    // Reset leaf budget for this tree
-    this.currentLeafCount = 0;
-    this.maxLeavesThisTree = 10; // hard cap ~10 leaves per tree
+    
+    // Generate static branches first
     this.generateTreeBranch(
       [x, y, z],
       [x, y + height, z],
@@ -207,6 +248,19 @@ export class GeometryBuilder {
       depth,
       seed,
       barkColor,
+      depth
+    );
+    
+    // Generate dynamic leaves separately
+    this.currentLeafCount = 0;
+    this.maxLeavesThisTree = 12; // hard cap ~12 leaves per tree
+    this.generateTreeLeaves(
+      [x, y, z],
+      [x, y + height, z],
+      height,
+      angle,
+      depth,
+      seed,
       depth,
       leafSize,
       leafColor
@@ -316,28 +370,7 @@ export class GeometryBuilder {
       cz = nz;
     }
 
-    // Place a leaf cluster at the end of terminal branches (probabilistic + budget cap)
-    if (
-      depth === 1 &&
-      leafSize !== undefined &&
-      leafColor !== undefined &&
-      this.currentLeafCount < this.maxLeavesThisTree
-    ) {
-      const leafSeed = seed * 917 + Math.floor(cx * 17 + cy * 23 + cz * 31);
-      const presenceChance = 0.5; // 50% chance to attempt a leaf on a twig
-      if (this.seededRandom(leafSeed + 999) < presenceChance) {
-        const remaining = this.maxLeavesThisTree - this.currentLeafCount;
-        const added = this.addLeafCluster(
-          [cx, cy, cz],
-          [lastDirX, lastDirY, lastDirZ],
-          leafSize,
-          leafColor,
-          leafSeed,
-          remaining
-        );
-        this.currentLeafCount += added;
-      }
-    }
+    // Leaves are now handled separately in generateTreeLeaves method
 
     if (depth > 1) {
       // Generate child branches (more spread, fewer but clearer)
@@ -426,9 +459,10 @@ export class GeometryBuilder {
 
     // Minimal leaf cluster - central plus two optional offsets, constrained by budget
     let addedCount = 0;
-    // Central large leaf (consume 1 if available)
+    // Central large leaf (consume 1 if available) - high wind influence
     if (remainingLeaves > 0) {
-      this.addOrientedBox([cx, cy, cz], [dx, dy, dz], size * 2.2, color);
+      const heightInfluence = Math.min(1.0, cy / 10.0); // Higher leaves move more
+      this.addOrientedBox([cx, cy, cz], [dx, dy, dz], size * 2.2, color, 0.8 + 0.2 * heightInfluence);
       addedCount += 1;
       remainingLeaves -= 1;
     }
@@ -440,7 +474,8 @@ export class GeometryBuilder {
       const px = cx + ox * off + dx * jitter(size * 0.02, jbase + 1);
       const py = cy + oy * off + dy * jitter(size * 0.02, jbase + 2);
       const pz = cz + oz * off + dz * jitter(size * 0.02, jbase + 3);
-      this.addOrientedBox([px, py, pz], [dx, dy, dz], scale, color);
+      const heightInfluence = Math.min(1.0, py / 10.0); // Higher leaves move more
+      this.addOrientedBox([px, py, pz], [dx, dy, dz], scale, color, 0.7 + 0.3 * heightInfluence);
     };
     for (let i = 0; i < options.length && remainingLeaves > 0; i++) {
       // 40% chance for each optional offset leaf
@@ -460,7 +495,8 @@ export class GeometryBuilder {
     center: [number, number, number],
     axisDir: [number, number, number],
     size: number,
-    color: [number, number, number]
+    color: [number, number, number],
+    windInfluence: number = 0.0
   ) {
     const [cx, cy, cz] = center;
     let [dx, dy, dz] = axisDir;
@@ -565,7 +601,189 @@ export class GeometryBuilder {
     ];
 
     for (const tri of faces) {
-      this.addFlatTriangle(tri[0] as any, tri[1] as any, tri[2] as any, color);
+      this.addDynamicTriangle(tri[0] as any, tri[1] as any, tri[2] as any, color, windInfluence);
+    }
+  }
+
+  // Generate only leaves for dynamic geometry
+  private generateTreeLeaves(
+    from: [number, number, number],
+    to: [number, number, number],
+    length: number,
+    angle: number,
+    depth: number,
+    seed: number,
+    initialDepth: number,
+    leafSize?: number,
+    leafColor?: [number, number, number]
+  ) {
+    if (depth <= 0 || length < 0.5 || !leafSize || !leafColor) return;
+
+    // Recreate the branch path to place leaves at the right positions
+    const [fx, fy, fz] = from;
+    const [txInitial, tyInitial, tzInitial] = to;
+    const segmentCount = Math.max(1, Math.floor(length * 0.6));
+    const baseStepX = (txInitial - fx) / segmentCount;
+    const baseStepY = (tyInitial - fy) / segmentCount;
+    const baseStepZ = (tzInitial - fz) / segmentCount;
+    const stepLength = length / segmentCount;
+
+    const variationDepthFactor = Math.max(0.2, Math.min(1, depth / Math.max(1, initialDepth)));
+    const directionJitterAmplitude = stepLength * 0.25 * variationDepthFactor;
+    const lengthJitterAmplitude = 0.12 * variationDepthFactor;
+
+    let cx = fx;
+    let cy = fy;
+    let cz = fz;
+    let lastDirX = 0;
+    let lastDirY = 1;
+    let lastDirZ = 0;
+
+    // Follow the same path as the branch generation
+    for (let i = 0; i < segmentCount; i++) {
+      const segSeed = seed * 101 + depth * 131 + i * 197;
+      const rndA = this.seededRandom(segSeed);
+      const rndB = this.seededRandom(segSeed + 1);
+      const rndC = this.seededRandom(segSeed + 2);
+
+      const jx = (rndA - 0.5) * 2 * directionJitterAmplitude;
+      const jz = (rndB - 0.5) * 2 * directionJitterAmplitude;
+      const lengthScale = 1 + (rndC - 0.5) * 2 * lengthJitterAmplitude;
+
+      let nx = cx + baseStepX * lengthScale + jx;
+      let ny = cy + baseStepY * lengthScale;
+      let nz = cz + baseStepZ * lengthScale + jz;
+
+      const idealX = fx + baseStepX * (i + 1);
+      const idealZ = fz + baseStepZ * (i + 1);
+      const biasDamp = 0.02 + 0.25 * variationDepthFactor;
+      nx = idealX + (nx - idealX) * biasDamp;
+      nz = idealZ + (nz - idealZ) * biasDamp;
+
+      const depthRatioLocal = depth / Math.max(1, initialDepth);
+      const minUpStep = stepLength * (0.2 + 0.4 * depthRatioLocal);
+      if (ny <= cy) ny = cy + minUpStep;
+
+      const hy = ny - cy;
+      const hx = nx - cx;
+      const hz = nz - cz;
+      const horizMag = Math.sqrt(hx * hx + hz * hz) || 0.00001;
+      const maxAngleNearTrunk = 0.9;
+      const maxAngleNearLeaves = 1.35;
+      const depthRatioLocal2 = depth / Math.max(1, initialDepth);
+      const localAngleCap = maxAngleNearLeaves + (maxAngleNearTrunk - maxAngleNearLeaves) * depthRatioLocal2;
+      const allowedHoriz = Math.tan(localAngleCap) * Math.max(hy, 0.00001);
+      if (horizMag > allowedHoriz) {
+        const scale = allowedHoriz / horizMag;
+        nx = cx + hx * scale;
+        nz = cz + hz * scale;
+      }
+
+      lastDirX = nx - cx;
+      lastDirY = ny - cy;
+      lastDirZ = nz - cz;
+
+      cx = nx;
+      cy = ny;
+      cz = nz;
+    }
+
+    // Place leaves at terminal branches
+    if (depth === 1 && this.currentLeafCount < this.maxLeavesThisTree) {
+      const leafSeed = seed * 917 + Math.floor(cx * 17 + cy * 23 + cz * 31);
+      const presenceChance = 0.7; // 70% chance for leaves
+      if (this.seededRandom(leafSeed + 999) < presenceChance) {
+        const remaining = this.maxLeavesThisTree - this.currentLeafCount;
+        const added = this.addLeafCluster(
+          [cx, cy, cz],
+          [lastDirX, lastDirY, lastDirZ],
+          leafSize,
+          leafColor,
+          leafSeed,
+          remaining
+        );
+        this.currentLeafCount += added;
+        console.log(`Added ${added} leaves at ${cx.toFixed(1)}, ${cy.toFixed(1)}, ${cz.toFixed(1)} - total: ${this.currentLeafCount}`);
+      }
+    }
+
+    // Recurse for child branches
+    if (depth > 1) {
+      const numBranches = depth > 2 ? 3 : 2;
+      const tx = cx, ty = cy, tz = cz;
+
+      for (let i = 0; i < numBranches; i++) {
+        const branchSeed = seed * 31 + depth * 7 + i * 13;
+        const rnd1 = this.seededRandom(branchSeed);
+        const rnd2 = this.seededRandom(branchSeed + 1);
+        const rnd3 = this.seededRandom(branchSeed + 2);
+
+        const depthRatio = depth / Math.max(1, initialDepth);
+        const maxAngleNearTrunk = 1.0;
+        const maxAngleNearLeaves = 1.35;
+        const maxOffVertical = maxAngleNearLeaves + (maxAngleNearTrunk - maxAngleNearLeaves) * depthRatio;
+
+        const angleJitter = (rnd1 - 0.5) * 2 * 0.9;
+        let branchAngle = angle + angleJitter;
+        if (branchAngle > maxOffVertical) branchAngle = maxOffVertical;
+        if (branchAngle < -maxOffVertical) branchAngle = -maxOffVertical;
+
+        const branchLength = length * (0.65 + rnd2 * 0.35);
+        const baseYaw = (2 * Math.PI * i) / numBranches;
+        const yawJitter = (rnd3 - 0.5) * Math.PI * 0.15;
+        const branchTilt = baseYaw + yawJitter;
+
+        const branchEndX = tx + Math.sin(branchAngle) * Math.cos(branchTilt) * branchLength;
+        const branchEndY = ty + Math.cos(branchAngle) * branchLength;
+        const branchEndZ = tz + Math.sin(branchAngle) * Math.sin(branchTilt) * branchLength;
+
+        this.generateTreeLeaves(
+          [tx, ty, tz],
+          [branchEndX, branchEndY, branchEndZ],
+          branchLength,
+          branchAngle,
+          depth - 1,
+          branchSeed,
+          initialDepth,
+          leafSize,
+          leafColor
+        );
+      }
+    }
+  }
+
+  // Add ground vegetation (bushes)
+  addBush(
+    x: number,
+    y: number,
+    z: number,
+    size: number,
+    color: [number, number, number],
+    seed: number
+  ) {
+    const bushHeight = size * (0.5 + 0.5 * this.seededRandom(seed));
+    const bushWidth = size * (0.8 + 0.4 * this.seededRandom(seed + 1));
+    const clusterCount = Math.floor(3 + 4 * this.seededRandom(seed + 2));
+    
+    for (let i = 0; i < clusterCount; i++) {
+      const angle = (i / clusterCount) * Math.PI * 2 + (this.seededRandom(seed + i + 10) - 0.5) * 0.5;
+      const radius = bushWidth * (0.3 + 0.7 * this.seededRandom(seed + i + 20));
+      const height = bushHeight * (0.5 + 0.5 * this.seededRandom(seed + i + 30));
+      
+      const px = x + Math.cos(angle) * radius;
+      const py = y + height * 0.5;
+      const pz = z + Math.sin(angle) * radius;
+      
+      const leafScale = size * (0.3 + 0.4 * this.seededRandom(seed + i + 40));
+      const heightInfluence = Math.min(1.0, py / 5.0); // Lower bushes move less
+      
+      this.addOrientedBox(
+        [px, py, pz],
+        [0, 1, 0], // Upward facing
+        leafScale,
+        color,
+        0.5 + 0.3 * heightInfluence // Less wind influence than tree leaves
+      );
     }
   }
 
@@ -575,13 +793,28 @@ export class GeometryBuilder {
     return x - Math.floor(x);
   }
 
-  // Get the built geometry arrays
-  getGeometry(): { positions: Float32Array; normals: Float32Array; colors: Float32Array } {
+  // Get the built static geometry arrays (branches)
+  getStaticGeometry(): { positions: Float32Array; normals: Float32Array; colors: Float32Array } {
     return {
       positions: new Float32Array(this.positions),
       normals: new Float32Array(this.normals), 
       colors: new Float32Array(this.colors)
     };
+  }
+  
+  // Get the built dynamic geometry arrays (leaves/bushes) with wind data
+  getDynamicGeometry(): { positions: Float32Array; normals: Float32Array; colors: Float32Array; windData: Float32Array } {
+    return {
+      positions: new Float32Array(this.dynamicPositions),
+      normals: new Float32Array(this.dynamicNormals),
+      colors: new Float32Array(this.dynamicColors),
+      windData: new Float32Array(this.dynamicWindData)
+    };
+  }
+  
+  // Legacy method for backward compatibility
+  getGeometry(): { positions: Float32Array; normals: Float32Array; colors: Float32Array } {
+    return this.getStaticGeometry();
   }
 
   // Clear the builder for reuse
@@ -589,5 +822,9 @@ export class GeometryBuilder {
     this.positions = [];
     this.normals = [];
     this.colors = [];
+    this.dynamicPositions = [];
+    this.dynamicNormals = [];
+    this.dynamicColors = [];
+    this.dynamicWindData = [];
   }
 }

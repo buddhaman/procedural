@@ -159,14 +159,86 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
     }
   }
   
-  // Get vegetation geometry
-  const vegGeometry = vegetationBuilder.getGeometry();
+  // Add ground vegetation (bushes)
+  // Generate bushes between trees with lower density
+  const bushDensity = 0.01; // Much lower density than trees
+  for (let attempt = 0; attempt < chunkSize * chunkSize * bushDensity; attempt++) {
+    const randomSeed = Math.floor(Math.abs(Math.sin(seed.length * 123 + attempt * 456)) * 100000);
+    const rng1 = Math.abs(Math.sin(randomSeed * 1.234)) % 1;
+    const rng2 = Math.abs(Math.sin(randomSeed * 2.345)) % 1;
+    const rng3 = Math.abs(Math.sin(randomSeed * 3.456)) % 1;
+    
+    const worldX = worldOffsetX + rng1 * CHUNK_WORLD_SIZE;
+    const worldZ = worldOffsetZ + rng2 * CHUNK_WORLD_SIZE;
+    const localX = worldX - worldOffsetX;
+    const localZ = worldZ - worldOffsetZ;
+    
+    // Get biome parameters for this position
+    const biomeParams = biomeGenerator.generateBiomeParams(worldX, worldZ);
+    
+    // Only place bushes in suitable biomes (not desert, not mountains, not ocean)
+    const biomeName = biomeGenerator.getBiomeName(biomeParams);
+    if (biomeName === 'desert' || biomeName === 'ocean' || biomeName === 'mountains') continue;
+    
+    // Check vegetation intensity
+    const { weights } = getBiomeParams(worldX, worldZ);
+    const vegIntensity = vegetationSystem.computeVegetationIntensity(worldX, worldZ, biomeParams, weights);
+    
+    // Skip if vegetation density is too low
+    if (rng3 > vegIntensity * 0.3) continue; // Lower chance than trees
+    
+    // Make sure we're not too close to any trees
+    let tooClose = false;
+    for (const tree of trees) {
+      const dist = Math.sqrt((worldX - tree.x) ** 2 + (worldZ - tree.z) ** 2);
+      if (dist < 8) { // Minimum distance from trees
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+    
+    // Bush size based on biome moisture and temperature
+    const bushSize = 0.8 + biomeParams.moisture * 1.2 + Math.abs(Math.sin(randomSeed * 4.567)) * 0.8;
+    
+    // Bush color based on biome
+    const greenIntensity = 0.3 + biomeParams.moisture * 0.5;
+    const tempModulation = (biomeParams.temperature - 0.5) * 0.2;
+    const bushColor: [number, number, number] = [
+      Math.max(0.1, Math.min(0.8, 0.2 + tempModulation)),
+      Math.max(0.2, Math.min(0.9, greenIntensity)),
+      Math.max(0.1, Math.min(0.6, 0.2 - tempModulation))
+    ];
+    
+    vegetationBuilder.addBush(
+      localX,
+      biomeParams.finalHeight,
+      localZ,
+      bushSize,
+      bushColor,
+      randomSeed
+    );
+    
+    // Debug log every 10th bush
+    if (attempt % 10 === 0) {
+      console.log(`Added bush at ${localX.toFixed(1)}, ${biomeParams.finalHeight.toFixed(1)}, ${localZ.toFixed(1)} in biome ${biomeName}`);
+    }
+  }
   
-  // Combine terrain and vegetation geometry
-  const combinedPositions = new Float32Array(positions.length + vegGeometry.positions.length);
-  const combinedNormals = new Float32Array(normals.length + vegGeometry.normals.length);
-  const combinedColors = new Float32Array(colors.length + vegGeometry.colors.length);
-  const combinedWaterMask = new Uint8Array(waterMask.length + vegGeometry.positions.length / 3);
+  // Get static vegetation geometry (branches)
+  const staticVegGeometry = vegetationBuilder.getStaticGeometry();
+  
+  // Get dynamic vegetation geometry (leaves/bushes with wind data)
+  const dynamicVegGeometry = vegetationBuilder.getDynamicGeometry();
+  
+  // Debug logging
+  console.log(`Chunk ${chunkX},${chunkZ}: Trees: ${trees.length}, Dynamic vertices: ${dynamicVegGeometry.positions.length / 3}, Static vertices: ${staticVegGeometry.positions.length / 3}`);
+  
+  // Combine terrain and static vegetation geometry
+  const combinedPositions = new Float32Array(positions.length + staticVegGeometry.positions.length);
+  const combinedNormals = new Float32Array(normals.length + staticVegGeometry.normals.length);
+  const combinedColors = new Float32Array(colors.length + staticVegGeometry.colors.length);
+  const combinedWaterMask = new Uint8Array(waterMask.length + staticVegGeometry.positions.length / 3);
   
   // Copy terrain data
   combinedPositions.set(positions);
@@ -174,12 +246,12 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
   combinedColors.set(colors);
   combinedWaterMask.set(waterMask);
   
-  // Copy vegetation data
-  combinedPositions.set(vegGeometry.positions, positions.length);
-  combinedNormals.set(vegGeometry.normals, normals.length);
-  combinedColors.set(vegGeometry.colors, colors.length);
+  // Copy static vegetation data (branches)
+  combinedPositions.set(staticVegGeometry.positions, positions.length);
+  combinedNormals.set(staticVegGeometry.normals, normals.length);
+  combinedColors.set(staticVegGeometry.colors, colors.length);
   // Vegetation is above water, so set water mask to 0
-  for (let i = 0; i < vegGeometry.positions.length / 3; i++) {
+  for (let i = 0; i < staticVegGeometry.positions.length / 3; i++) {
     combinedWaterMask[waterMask.length + i] = 0;
   }
 
@@ -205,6 +277,11 @@ function buildChunkGeometry(params: ChunkParams): WorkerResult {
     scale: worldScale,
     chunkX,
     chunkZ,
+    // Dynamic vegetation data (leaves/bushes)
+    dynamicPositions: dynamicVegGeometry.positions,
+    dynamicNormals: dynamicVegGeometry.normals,
+    dynamicColors: dynamicVegGeometry.colors,
+    dynamicWindData: dynamicVegGeometry.windData,
   };
 }
 
@@ -339,6 +416,20 @@ self.onmessage = (ev: MessageEvent<ChunkParams>) => {
   
   if (result.waterMask) {
     transferables.push(result.waterMask.buffer);
+  }
+  
+  // Add dynamic vegetation buffers
+  if (result.dynamicPositions) {
+    transferables.push(result.dynamicPositions.buffer);
+  }
+  if (result.dynamicNormals) {
+    transferables.push(result.dynamicNormals.buffer);
+  }
+  if (result.dynamicColors) {
+    transferables.push(result.dynamicColors.buffer);
+  }
+  if (result.dynamicWindData) {
+    transferables.push(result.dynamicWindData.buffer);
   }
   
   (postMessage as any)(result, transferables);

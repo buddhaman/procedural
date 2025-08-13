@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ChunkParams, WorkerResult, ChunkCoord, CHUNK_SIZE, CHUNK_WORLD_SIZE, RENDER_DISTANCE, WATER_LEVEL } from './types';
 import { createWaterMaterial } from './WaterShader';
+import { createWindMaterial, updateWindUniforms } from './WindShader';
 import { BiomeGenerator } from './BiomeGenerator';
 
 export class TerrainChunk {
@@ -8,6 +9,7 @@ export class TerrainChunk {
   public readonly worldX: number;
   public readonly worldZ: number;
   public terrainMesh?: THREE.Mesh;
+  public vegetationMesh?: THREE.Mesh; // Dynamic vegetation (leaves/bushes)
   public isLoading = false;
   public isLoaded = false;
   public heights?: Float32Array;
@@ -23,7 +25,12 @@ export class TerrainChunk {
       this.terrainMesh.geometry.dispose();
       this.terrainMesh.parent?.remove(this.terrainMesh);
     }
+    if (this.vegetationMesh) {
+      this.vegetationMesh.geometry.dispose();
+      this.vegetationMesh.parent?.remove(this.vegetationMesh);
+    }
     this.terrainMesh = undefined;
+    this.vegetationMesh = undefined;
     this.isLoaded = false;
   }
 }
@@ -35,6 +42,7 @@ export class ChunkManager {
   private workQueue: { chunk: TerrainChunk; params: ChunkParams }[] = [];
   private scene: THREE.Scene;
   private terrainMaterial: THREE.Material;
+  private vegetationMaterial: THREE.ShaderMaterial;
   private waterPlane?: THREE.Mesh;
   public waterMaterial: THREE.ShaderMaterial;
   private currentTerrainParams: any;
@@ -44,6 +52,7 @@ export class ChunkManager {
   constructor(scene: THREE.Scene, workerCount = 4) {
     this.scene = scene;
     this.terrainMaterial = this.createTerrainMaterial();
+    this.vegetationMaterial = createWindMaterial();
     this.waterMaterial = createWaterMaterial(WATER_LEVEL);
     this.initWorkerPool(workerCount);
     this.createWaterPlane();
@@ -122,6 +131,41 @@ export class ChunkManager {
       chunk.terrainMesh.receiveShadow = true;
       this.scene.add(chunk.terrainMesh);
     }
+    
+    // Create dynamic vegetation mesh if data is available
+    if (result.dynamicPositions && result.dynamicPositions.length > 0) {
+      console.log(`Creating vegetation mesh for chunk ${result.chunkX},${result.chunkZ} with ${result.dynamicPositions.length / 3} vertices`);
+      
+      const vegetationGeometry = new THREE.BufferGeometry();
+      vegetationGeometry.setAttribute('position', new THREE.BufferAttribute(result.dynamicPositions, 3));
+      vegetationGeometry.setAttribute('normal', new THREE.BufferAttribute(result.dynamicNormals!, 3));
+      vegetationGeometry.setAttribute('color', new THREE.BufferAttribute(result.dynamicColors!, 3));
+      vegetationGeometry.setAttribute('windInfluence', new THREE.BufferAttribute(result.dynamicWindData!, 1));
+      
+      vegetationGeometry.computeBoundingSphere();
+      
+      if (chunk.vegetationMesh) {
+        chunk.vegetationMesh.geometry.dispose();
+        chunk.vegetationMesh.geometry = vegetationGeometry;
+        console.log('Updated existing vegetation mesh');
+      } else {
+        chunk.vegetationMesh = new THREE.Mesh(vegetationGeometry, this.vegetationMaterial);
+        chunk.vegetationMesh.position.set(chunk.worldX, 0, chunk.worldZ);
+        chunk.vegetationMesh.castShadow = true;
+        chunk.vegetationMesh.receiveShadow = true;
+        this.scene.add(chunk.vegetationMesh);
+        console.log(`Added new vegetation mesh to scene at ${chunk.worldX}, 0, ${chunk.worldZ}`);
+        console.log('Vegetation material uniforms:', this.vegetationMaterial.uniforms);
+      }
+    } else {
+      console.log(`No dynamic vegetation data for chunk ${result.chunkX},${result.chunkZ}`);
+      if (chunk.vegetationMesh) {
+        // Remove vegetation mesh if no vegetation data
+        chunk.vegetationMesh.geometry.dispose();
+        chunk.vegetationMesh.parent?.remove(chunk.vegetationMesh);
+        chunk.vegetationMesh = undefined;
+      }
+    }
 
     // Authoritative heightfield for collision
     if (result.heights) {
@@ -146,6 +190,12 @@ export class ChunkManager {
         this.waterMaterial.uniforms.detailAmplitude.value = terrainParams.detailAmplitude;
       }
     }
+    
+    // Update wind animation for vegetation
+    updateWindUniforms(this.vegetationMaterial, time, {
+      windDirection: new THREE.Vector3(Math.sin(time * 0.1), 0, Math.cos(time * 0.1)).normalize(),
+      windStrength: 0.6 + 0.3 * Math.sin(time * 0.2), // Gentle, natural wind variation
+    });
   }
 
   private processWorkQueue() {
@@ -292,6 +342,7 @@ export class ChunkManager {
     }
     
     this.waterMaterial.dispose();
+    this.vegetationMaterial.dispose();
     
     for (const worker of this.workerPool) {
       worker.terminate();

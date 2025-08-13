@@ -1,0 +1,18 @@
+"filename", "language", "TypeScript", "CSS", "TypeScript JSX", "comment", "blank", "total"
+"c:\code\procedural\procedural-terrain\src\App.tsx", "TypeScript JSX", 0, 0, 520, 46, 68, 634
+"c:\code\procedural\procedural-terrain\src\BiomeGenerator.ts", "TypeScript", 258, 0, 0, 26, 51, 335
+"c:\code\procedural\procedural-terrain\src\BirdSystem.ts", "TypeScript", 378, 0, 0, 50, 84, 512
+"c:\code\procedural\procedural-terrain\src\ChunkManager.ts", "TypeScript", 233, 0, 0, 18, 51, 302
+"c:\code\procedural\procedural-terrain\src\CreatureRenderer.ts", "TypeScript", 266, 0, 0, 32, 65, 363
+"c:\code\procedural\procedural-terrain\src\CreatureSystem.ts", "TypeScript", 213, 0, 0, 22, 46, 281
+"c:\code\procedural\procedural-terrain\src\GeometryBuilder.ts", "TypeScript", 451, 0, 0, 73, 69, 593
+"c:\code\procedural\procedural-terrain\src\SkyDome.ts", "TypeScript", 113, 0, 0, 12, 19, 144
+"c:\code\procedural\procedural-terrain\src\VegetationSystem.ts", "TypeScript", 413, 0, 0, 29, 51, 493
+"c:\code\procedural\procedural-terrain\src\VerletPhysics.ts", "TypeScript", 275, 0, 0, 36, 63, 374
+"c:\code\procedural\procedural-terrain\src\WaterShader.ts", "TypeScript", 85, 0, 0, 13, 20, 118
+"c:\code\procedural\procedural-terrain\src\chunkWorker.ts", "TypeScript", 253, 0, 0, 38, 54, 345
+"c:\code\procedural\procedural-terrain\src\main.tsx", "TypeScript JSX", 0, 0, 9, 0, 2, 11
+"c:\code\procedural\procedural-terrain\src\styles.css", "CSS", 0, 51, 0, 3, 12, 66
+"c:\code\procedural\procedural-terrain\src\terrainWorker.ts", "TypeScript", 146, 0, 0, 11, 30, 187
+"c:\code\procedural\procedural-terrain\src\types.ts", "TypeScript", 36, 0, 0, 0, 4, 40
+"Total", "-", 3120, 51, 529, 409, 689, 4798
