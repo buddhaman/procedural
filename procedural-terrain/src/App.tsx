@@ -153,7 +153,7 @@ export default function App() {
     const movementKeys = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyQ']);
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'F1') {
+      if (e.code === 'KeyG' && e.shiftKey) {
         e.preventDefault();
         setMode((prev) => (prev === 'dev' ? 'play' : 'dev'));
         return;
@@ -489,12 +489,12 @@ export default function App() {
           {mode === 'dev' ? (
             <>
               <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move • <kbd>Space</kbd>/<kbd>Shift</kbd> up/down • <kbd>Q</kbd> sprint</div>
-              <div>Click to lock mouse • Press <kbd>F1</kbd> for Play Mode</div>
+              <div>Click to lock mouse • Press <kbd>Shift+G</kbd> for Play Mode</div>
             </>
           ) : (
             <>
               <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move • <kbd>Space</kbd> jump • <kbd>Q</kbd> sprint</div>
-              <div>Click to lock mouse • Press <kbd>F1</kbd> for Dev Mode</div>
+              <div>Click to lock mouse • Press <kbd>Shift+G</kbd> for Dev Mode</div>
             </>
           )}
         </div>
@@ -530,7 +530,7 @@ export default function App() {
               cursor: 'pointer'
             }}
           >
-            {mode === 'dev' ? 'Dev (F1)' : 'Play (F1)'}
+            {mode === 'dev' ? 'Dev (Shift+G)' : 'Play (Shift+G)'}
           </button>
         </div>
 
