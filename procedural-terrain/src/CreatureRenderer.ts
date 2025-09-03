@@ -34,7 +34,7 @@ export class InstancedRenderer {
         
         // Create beam (box) geometry - a 1x1x1 box that will be scaled
         const beamGeometry = new THREE.BoxGeometry(1, 1, 1);
-        const beamMaterial = new THREE.MeshToonMaterial();
+        const beamMaterial = new THREE.MeshLambertMaterial();
         this.beamMesh = new THREE.InstancedMesh(beamGeometry, beamMaterial, this.maxBeams);
         this.beamMesh.count = 0;
         this.beamMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -46,7 +46,7 @@ export class InstancedRenderer {
         
         // Create sphere geometry
         const sphereGeometry = new THREE.SphereGeometry(1, 16, 16);
-        const sphereMaterial = new THREE.MeshToonMaterial();
+        const sphereMaterial = new THREE.MeshLambertMaterial();
         this.sphereMesh = new THREE.InstancedMesh(sphereGeometry, sphereMaterial, this.maxSpheres);
         this.sphereMesh.count = 0;
         this.sphereMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

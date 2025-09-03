@@ -5,6 +5,7 @@ import { ChunkManager } from './ChunkManager';
 import { CreatureSystem } from './CreatureSystem';
 import { BirdSystem } from './BirdSystem';
 import { CHUNK_SIZE } from './types';
+import { createSkyDome } from './SkyDome';
 import './styles.css';
 
 // Movement settings
@@ -36,6 +37,13 @@ export default function App() {
   const [params, setParams] = useState<Params>({ ...DEFAULTS });
   const [waveStrength, setWaveStrength] = useState(0.1);
   const [waterOpacity, setWaterOpacity] = useState(0.4);
+  // Day/Night configuration
+  const [dayDurationSeconds, setDayDurationSeconds] = useState<number>(120);
+  const dayDurationRef = useRef<number>(dayDurationSeconds);
+  useEffect(() => { dayDurationRef.current = dayDurationSeconds; }, [dayDurationSeconds]);
+  const [manualHour, setManualHour] = useState<number | null>(null); // 0..24 overrides automation when not null
+  const manualHourRef = useRef<number | null>(manualHour);
+  useEffect(() => { manualHourRef.current = manualHour; }, [manualHour]);
   const [currentBiome, setCurrentBiome] = useState<string>('Unknown');
   const [cameraPosition, setCameraPosition] = useState({ x: 0, y: 0, z: 0 });
   const [biomeParams, setBiomeParams] = useState<any>(null);
@@ -74,16 +82,16 @@ export default function App() {
 
     // Scene setup
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87c5ff); // solid blue sky
+    scene.background = null;
 
-    const camera = new THREE.PerspectiveCamera(70, container.clientWidth / container.clientHeight, 0.1, 2000);
+    const camera = new THREE.PerspectiveCamera(70, container.clientWidth / container.clientHeight, 0.1, 10000);
     camera.position.set(0, CAMERA_START_Y, 120);
     camera.lookAt(0, 0, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.25;
+    renderer.toneMapping = THREE.CineonToneMapping;
+    renderer.toneMappingExposure = 1.0;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.shadowMap.enabled = true;
@@ -106,19 +114,20 @@ export default function App() {
     directionalLight.shadow.normalBias = 0.05; // Additional bias for terrain surfaces
     scene.add(directionalLight);
 
-    // Soft ambient + sky/ground fill for colorful look
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    // Ambient light (will be dynamically adjusted with time of day)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.12);
     scene.add(ambientLight);
-    const hemiLight = new THREE.HemisphereLight(0xbfe3ff, 0x8f6a40, 0.7);
-    scene.add(hemiLight);
 
-    // Simple sky color; sun billboard for direction
-    const sunBillboard = new THREE.Mesh(
-      new THREE.PlaneGeometry(80, 80),
-      new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 1.0 })
-    );
-    sunBillboard.renderOrder = 999;
-    scene.add(sunBillboard);
+    // Sky dome with built-in clouds and stars
+    const { mesh: skyDome, uniforms: skyUniforms } = createSkyDome(4000);
+    (skyDome.material as THREE.ShaderMaterial).depthWrite = false;
+    (skyDome.material as THREE.ShaderMaterial).depthTest = false;
+    skyDome.renderOrder = -1000;
+    scene.add(skyDome);
+
+    // Dynamic fog (updated each frame)
+    const initialFogColor = new THREE.Color(0x0b0f1a);
+    scene.fog = new THREE.FogExp2(initialFogColor.getHex(), 0.0);
 
     // Controls (Pointer lock)
     const controls = new PointerLockControls(camera, renderer.domElement);
@@ -189,8 +198,25 @@ export default function App() {
     window.addEventListener('resize', onResize);
 
     const clock = new THREE.Clock();
-    let dayTime = 0; // 0..1 day cycle
-    const dayLengthSec = 90; // 1.5 minutes for a full day
+    let timeOfDay01 = 0.35; // start morning/daytime for visibility (0..1)
+
+    const tmpColorA = new THREE.Color();
+    const tmpColorB = new THREE.Color();
+    const warmSunrise = new THREE.Color(0xffa366);
+    const warmDay = new THREE.Color(0xfff2cc);
+    const coolMoon = new THREE.Color(0x88aaff);
+    const skyZenith = new THREE.Color(0x6fb7ff);
+    const skyHorizon = new THREE.Color(0xf1c27d);
+    const skyNight = new THREE.Color(0x0b0f1a);
+    const fogDay = new THREE.Color(0xbfd7ff);
+    const fogNight = new THREE.Color(0x0b0f1a);
+    const fogDawn = new THREE.Color(0xff9a73);
+    const fogDusk = new THREE.Color(0x6f5aa8);
+
+    function smoothstep(edge0: number, edge1: number, x: number) {
+      const t = THREE.MathUtils.clamp((x - edge0) / (edge1 - edge0), 0, 1);
+      return t * t * (3 - 2 * t);
+    }
 
     function animate() {
       const delta = Math.min(clock.getDelta(), 0.05);
@@ -257,31 +283,76 @@ export default function App() {
       const elapsed = clock.getElapsedTime();
       chunkManager.updateWater(elapsed, camera.position, params);
 
-      // Day/Night cycle (position and light color)
-      dayTime = (dayTime + delta / dayLengthSec) % 1;
-      // Sun direction: rotate around scene
-      const sunTheta = dayTime * Math.PI * 2; // 0..2π
-      const sunY = Math.sin(sunTheta);
-      const sunX = Math.cos(sunTheta + 0.3) * 0.8;
-      const sunZ = Math.cos(sunTheta - 0.2) * 0.9;
-      const sunDir = new THREE.Vector3(sunX, sunY, sunZ).normalize();
-      directionalLight.position.copy(sunDir.clone().multiplyScalar(400));
-      directionalLight.target.position.set(0, 0, 0);
-      directionalLight.target.updateMatrixWorld();
-      // Tint light slightly warmer at low sun angles
-      const warm = THREE.MathUtils.clamp(1 - Math.max(sunY, 0), 0, 1);
-      directionalLight.color.setRGB(1, 1 - warm * 0.25, 1 - warm * 0.4);
-      directionalLight.intensity = THREE.MathUtils.lerp(0.15, 1.05, Math.max(0, sunY * 0.5 + 0.5));
+      // Day/Night time advancement (0..1). Manual debug slider overrides automation.
+      const manual = manualHourRef.current;
+      if (manual != null) {
+        timeOfDay01 = (manual % 24) / 24;
+      } else {
+        const step = delta / Math.max(1e-3, dayDurationRef.current);
+        timeOfDay01 = (timeOfDay01 + step) % 1;
+      }
 
-      // Position the sun billboard far along light direction and face camera
-      const sunDistance = 5000;
-      const sunPos = sunDir.clone().multiplyScalar(sunDistance);
-      sunBillboard.position.copy(sunPos);
-      sunBillboard.lookAt(camera.position);
+      // Sun/moon direction: east->west one cycle, slight tilt on Z for interest
+      const theta = (timeOfDay01 - 0.25) * Math.PI * 2; // 6:00 at horizon
+      const sunDir = new THREE.Vector3(Math.cos(theta), Math.sin(theta), 0.25).normalize();
+
+      // Compute day factor from sun elevation with soft edges
+      const elev01 = THREE.MathUtils.clamp(sunDir.y * 0.5 + 0.5, 0, 1);
+      const dayFactor = smoothstep(0.02, 0.12, elev01);
+
+      // Directional light color/intensity
+      const twilight = THREE.MathUtils.clamp(1 - Math.abs(sunDir.y) * 6, 0, 1); // near horizon
+      const sunWarm = tmpColorA.copy(warmSunrise).lerp(warmDay, dayFactor);
+      const duskCool = tmpColorB.copy(coolMoon);
+      const lightColor = sunWarm.clone().lerp(duskCool, 1 - dayFactor).lerp(sunWarm, twilight);
+      directionalLight.color.copy(lightColor);
+      directionalLight.intensity = THREE.MathUtils.lerp(0.12, 1.1, dayFactor);
+      // Move light with camera for stable shadows, pointing from sunDir
+      const lightDistance = 200;
+      directionalLight.position.copy(camera.position).add(sunDir.clone().multiplyScalar(lightDistance));
+      directionalLight.target.position.copy(camera.position);
+      directionalLight.target.updateMatrixWorld();
+
+      // Update sky dome uniforms and position with camera to avoid clipping
+      skyUniforms.sunDirection.value.copy(sunDir);
+      skyUniforms.time.value = clock.getElapsedTime();
+      skyUniforms.zenithColor.value.copy(skyZenith);
+      skyUniforms.horizonColor.value.copy(skyHorizon);
+      skyUniforms.nightColor.value.copy(skyNight);
+      skyDome.position.copy(camera.position);
+
+      // Single source of truth: publish sun direction on the scene for any shaders/systems
+      (scene.userData as any).sunDirection = sunDir;
+
+      // Dynamic ambient: color + intensity follows day/night
+      const ambientDay = new THREE.Color(0xffffff);
+      const ambientNight = new THREE.Color(0x162033);
+      ambientLight.color.copy(ambientNight.clone().lerp(ambientDay, dayFactor));
+      ambientLight.intensity = THREE.MathUtils.lerp(0.15, 0.35, dayFactor);
+
+      // Dynamic fog: color + density
+      const baseFog = tmpColorA.copy(fogNight).lerp(fogDay, dayFactor);
+      const warmFog = tmpColorB.copy(fogDawn);
+      const coolFog = fogDusk;
+      const isMorning = timeOfDay01 < 0.5;
+      const twilightTint = isMorning ? warmFog : coolFog;
+      const twilightAmount = twilight * 0.6;
+      baseFog.lerp(twilightTint, twilightAmount);
+      const fog = scene.fog as THREE.FogExp2 | null;
+      if (fog) {
+        fog.color.copy(baseFog);
+        const densityDay = 0.00008;
+        const densityNight = 0.00018;
+        const densityTwilightBoost = 0.00022 * twilightAmount;
+        fog.density = THREE.MathUtils.lerp(densityNight, densityDay, dayFactor) + densityTwilightBoost;
+      }
 
       // Dev HUD: simulation time and light dir (realtime)
       if (simTimeRef.current) {
-        simTimeRef.current.textContent = dayTime.toFixed(3);
+        const totalMinutes = Math.floor(timeOfDay01 * 24 * 60);
+        const hh = Math.floor(totalMinutes / 60) % 24;
+        const mm = totalMinutes % 60;
+        simTimeRef.current.textContent = `${hh.toString().padStart(2, '0')}:${mm.toString().padStart(2, '0')}`;
       }
       if (lightDirRef.current) {
         lightDirRef.current.textContent = `${sunDir.x.toFixed(2)}, ${sunDir.y.toFixed(2)}, ${sunDir.z.toFixed(2)}`;
@@ -302,11 +373,7 @@ export default function App() {
         compassRealtimeRef.current.textContent = `${dirs[idx]} ${Math.round(degrees)}°`;
       }
 
-      // Move both light and target to follow player, keeping direction constant
-      const lightOffset = new THREE.Vector3(100, 100, 50); // Original offset
-      directionalLight.position.copy(camera.position).add(lightOffset);
-      directionalLight.target.position.copy(camera.position);
-      directionalLight.target.updateMatrixWorld();
+      // Light updated above to follow camera with sun direction
 
       // Update creatures
       creatureSystem.update({
@@ -548,6 +615,49 @@ export default function App() {
                 <div className="v"><span ref={simTimeRef as any}>0.000</span></div>
                 <div className="k">Light Dir</div>
                 <div className="v"><span ref={lightDirRef as any}>0,0,0</span></div>
+              </div>
+
+              {/* Day/Night controls */}
+              <div style={{ 
+                marginBottom: '12px', 
+                padding: '8px', 
+                background: 'rgba(255, 255, 255, 0.05)', 
+                borderRadius: '8px',
+                fontSize: '11px'
+              }}>
+                <div style={{ fontWeight: 700, color: '#ffd166', marginBottom: 6 }}>Day/Night</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <label style={{ width: 110 }}>Day length (s)</label>
+                  <input
+                    type="number"
+                    min={10}
+                    max={3600}
+                    step={10}
+                    value={dayDurationSeconds}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value || '0', 10);
+                      const clamped = Math.max(10, Math.min(3600, isNaN(v) ? dayDurationSeconds : v));
+                      setDayDurationSeconds(clamped);
+                    }}
+                    style={{ width: 100 }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ width: 110 }}>Scrub hour</label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={24}
+                    step={0.01}
+                    onChange={(e) => setManualHour(parseFloat(e.target.value))}
+                    style={{ width: 180 }}
+                  />
+                  <button
+                    onClick={() => setManualHour(null)}
+                    style={{ background: '#2d6cdf', color: 'white', border: 'none', borderRadius: 4, padding: '4px 8px', cursor: 'pointer' }}
+                    title="Return to automated cycle"
+                  >Auto</button>
+                </div>
               </div>
 
               {/* Current biome and position info */}
